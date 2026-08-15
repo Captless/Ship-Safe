@@ -1,0 +1,8 @@
+{
+  "name": "vuln-app",
+  "dependencies": {
+    "express": "^4.18.0",
+    "react": "^18.2.0",
+    "reacct-dom": "^18.2.0"
+  }
+}

@@ -1,0 +1,27 @@
+[project]
+name = "ship-safe"
+version = "0.1.0"
+description = "Pre-flight scanner for vibe-coded apps"
+requires-python = ">=3.12"
+dependencies = [
+    "fastapi==0.115.6",
+    "uvicorn[standard]==0.34.0",
+    "python-multipart==0.0.20",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest==8.3.4",
+    "httpx==0.28.1",
+]
+
+[project.scripts]
+dev = "run:main"
+
+[tool.setuptools.packages.find]
+include = ["scanner*", "backend*"]
+exclude = ["frontend*", "tests*", "docs*"]
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"

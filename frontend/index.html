@@ -1,0 +1,111 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="description" content="Ship Safe — the pre-flight scanner for vibe-coded apps. Static analysis, Ship Score, actionable fix prompts.">
+  <title>Ship Safe — Before You Ship</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <header class="site-header">
+    <div class="brand" aria-label="Ship Safe">
+      <span class="brand-mark" aria-hidden="true">&#9650;</span>
+      <span class="brand-name">Ship&nbsp;Safe</span>
+      <span class="brand-tag">Before You Ship</span>
+    </div>
+  </header>
+
+  <main>
+    <section id="view-landing" class="view active" aria-label="Welcome">
+      <div class="hero">
+        <h1 class="hero-title">Ship Safe</h1>
+        <p class="hero-headline">Before You Ship</p>
+        <p class="hero-subline">Scan your vibe-coded app before you deploy it.</p>
+        <p class="hero-tools">Claude Code &middot; Cursor &middot; OpenCode &middot; Lovable &middot; Bolt &middot; Replit</p>
+        <button id="cta-scan" class="btn btn-primary" type="button">Scan My Project</button>
+      </div>
+      <div class="features" aria-label="Features">
+        <article class="feature-card">
+          <h2 class="feature-title">Static Analysis</h2>
+          <p class="feature-body">Your source is inspected with rules, never executed. Nothing runs on our side either.</p>
+        </article>
+        <article class="feature-card">
+          <h2 class="feature-title">Ship Score</h2>
+          <p class="feature-body">A clear 0&ndash;100 rating with a grade you can actually act on.</p>
+        </article>
+        <article class="feature-card">
+          <h2 class="feature-title">Actionable Fixes</h2>
+          <p class="feature-body">Copyable AI fix prompts for every finding. Paste into your favorite assistant and ship.</p>
+        </article>
+      </div>
+    </section>
+
+    <section id="view-upload" class="view" aria-label="Upload your project" hidden>
+      <div class="panel">
+        <h2 class="panel-title">Scan My Project</h2>
+        <div id="upload-dropzone" class="dropzone" role="button" tabindex="0" aria-label="Upload a ZIP file. Click or press Enter to browse.">
+          <p class="dropzone-main">Drag &amp; drop your <code>.zip</code> here</p>
+          <p class="dropzone-sub">or click to browse</p>
+          <input id="upload-input" type="file" accept=".zip,application/zip,application/x-zip-compressed" aria-label="Choose ZIP file">
+        </div>
+        <p id="upload-fileinfo" class="fileinfo" hidden></p>
+        <p id="upload-error" class="error-text" role="alert" hidden></p>
+        <ul class="notice-list" aria-label="Scan notes">
+          <li>ZIP archives are supported. Other formats are rejected.</li>
+          <li>Static analysis only &mdash; your source is never executed.</li>
+          <li>Files are deleted after the scan completes.</li>
+          <li>Large monorepos may take a minute; very large projects are rejected.</li>
+        </ul>
+        <button id="upload-button" class="btn btn-primary" type="button" disabled>Upload &amp; Scan</button>
+      </div>
+    </section>
+
+    <section id="view-progress" class="view" aria-label="Scan in progress" hidden>
+      <div class="panel panel-center">
+        <div class="spinner" role="status" aria-hidden="true"></div>
+        <p id="progress-status" class="progress-status" role="status" aria-live="polite">Uploading&hellip;</p>
+      </div>
+    </section>
+
+    <section id="view-results" class="view" aria-label="Scan results" hidden>
+      <div class="panel">
+        <div class="results-header">
+          <h2 class="panel-title">Scan Results</h2>
+          <button id="scan-again" class="btn btn-secondary" type="button">Scan another project</button>
+        </div>
+
+        <div class="score-wrap">
+          <div class="score-ring" aria-hidden="true">
+            <svg viewBox="0 0 200 200" width="168" height="168">
+              <circle class="ring-bg" cx="100" cy="100" r="88"></circle>
+              <circle id="results-score-ring" class="ring-fg" cx="100" cy="100" r="88"></circle>
+            </svg>
+            <div class="score-center">
+              <span id="results-score" class="score-number">--</span>
+              <span id="results-grade" class="score-grade">Pending</span>
+            </div>
+          </div>
+          <p id="results-summary" class="results-summary">Awaiting results.</p>
+        </div>
+
+        <h3 class="section-heading">Findings</h3>
+        <div id="findings-list" class="findings-list" aria-label="Findings grouped by severity"></div>
+
+        <h3 class="section-heading">Passed Checks</h3>
+        <div id="passed-section" class="passed-section" aria-label="Passed checks"></div>
+
+        <div class="results-actions">
+          <button id="download-report" class="btn btn-secondary" type="button">Download Report</button>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <footer class="site-footer">
+    <p>Ship Safe &mdash; The pre-flight scanner for vibe-coded apps.</p>
+  </footer>
+
+  <script src="app.js"></script>
+</body>
+</html>
