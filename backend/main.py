@@ -212,59 +212,147 @@ def _render_report(scan_id: str, result: dict) -> str:
 
     groups = result.get("groups", [])
     summary = result.get("summary", {})
-    sev = summary.get("findings_by_severity", {})
     score = result.get("score", 100)
-    status = result.get("grade", "REVIEW BEFORE SHIPPING")
+    grade = result.get("grade", "REVIEW BEFORE SHIPPING")
 
-    def counts(sev_value):
-        return sum(1 for g in groups if g.get("severity") == sev_value)
+    if score >= 90:
+        hero_title = "IS LOOKING GOOD"
+    elif score >= 75:
+        hero_title = "IS ALMOST READY"
+    elif score >= 50:
+        hero_title = "NEEDS ATTENTION"
+    else:
+        hero_title = "DON'T SHIP YET"
 
-    sev_order = ["critical", "high", "medium"]
-    sev_label = {"critical": "Critical", "high": "High", "medium": "Medium"}
-    count_line = " ".join(
-        f"{sev_label[s]} {counts(s)}" for s in sev_order
-    )
+    actionable = [g for g in groups if g.get("severity") in ("critical", "high", "medium")]
+    minor = [g for g in groups if g.get("severity") not in ("critical", "high", "medium")]
 
-    def card(g, primary=False):
+    sev_order = ["critical", "high", "medium", "low", "informational"]
+    sev_labels = {
+        "critical": "Fix before shipping",
+        "high": "Worth reviewing",
+        "medium": "Worth reviewing",
+        "low": "Good to know",
+        "informational": "Good to know",
+    }
+    counts = {s: sum(1 for g in groups if g.get("severity") == s) for s in sev_order}
+    count_line = " ".join(f"{sev_labels[s]} {counts[s]}" for s in sev_order if counts[s])
+
+    if counts.get("critical"):
+        next_step = "Fix the critical issues first. The remaining items can be reviewed afterward."
+    elif counts.get("high") or counts.get("medium"):
+        next_step = "Review the highlighted issues and fix the ones that matter for your app before you ship."
+    elif counts.get("low") or counts.get("informational"):
+        next_step = "These are minor suggestions. Review them when you have time."
+    else:
+        next_step = "Continue with your normal testing and deployment review."
+
+    prompt_lines = []
+    if actionable:
+        prompt_lines.append(
+            f"Ship Safe found {len(actionable)} issue{'s' if len(actionable) != 1 else ''} worth fixing before you ship."
+        )
+        prompt_lines.append("")
+        prompt_lines.append("Instructions:")
+        prompt_lines.append("\n".join([
+            "Inspect the existing project first.",
+            "Understand the existing architecture and conventions before making changes.",
+            "Address each listed finding with the smallest appropriate change.",
+            "Do not create duplicate files or duplicate existing modules.",
+            "Preserve existing behavior unless a finding requires changing it.",
+            "Avoid unrelated refactoring.",
+            "Verify your changes by running the relevant tests.",
+            "Summarize what you changed and why.",
+        ]))
+        for i, g in enumerate(actionable):
+            b = g.get("beginner", {})
+            locs = g.get("locations", [])
+            first = locs[0] if locs else {}
+            where = first.get("file", "unknown location")
+            if first.get("line"):
+                where += f":{first['line']}"
+            prompt_lines.append("")
+            prompt_lines.append(f"{i + 1}. {str(g.get('severity', '')).upper()} — {b.get('title') or g.get('title') or 'Finding'}")
+            prompt_lines.append(f"   Where: {where}")
+            prompt_lines.append(f"   What happened: {b.get('summary') or g.get('description') or ''}")
+            prompt_lines.append(f"   Why it matters: {b.get('why_it_matters') or g.get('why_it_matters') or ''}")
+            prompt_lines.append(f"   What to do: {b.get('recommended_action') or g.get('recommendation') or ''}")
+            if g.get("ai_fix_prompt"):
+                prompt_lines.append(f"   Suggested fix: {g['ai_fix_prompt']}")
+        consolidated = "\n".join(prompt_lines)
+    else:
+        consolidated = ""
+
+    def card(g):
+        b = g.get("beginner", {})
         locs = g.get("locations", [])
         first = locs[0] if locs else {}
         extra = ""
         if len(locs) > 1:
             others = "".join(
-                f"<li>{esc(l.get('file',''))}{':' + esc(str(l.get('line',''))) if l.get('line') else ''}</li>"
+                f"<li>{esc(l.get('file', ''))}{':' + esc(str(l.get('line', ''))) if l.get('line') else ''}</li>"
                 for l in locs[1:]
             )
             extra = f"<details class='locs'><summary>{len(locs)} locations detected</summary><ul>{others}</ul></details>"
-        title = esc(g.get("title", "Finding"))
-        if primary:
-            title = "<strong>" + title + "</strong>"
-        return (
+        title = esc(b.get("title") or g.get("title", "Finding"))
+        html = (
             "<div class='card'>"
-            f"<div class='head'><span class='sev {esc(g.get('severity',''))}'>{esc(g.get('severity',''))}</span>"
-            f"<span class='rid'>{esc(g.get('rule_id',''))}</span></div>"
+            f"<div class='head'><span class='sev {esc(g.get('severity', ''))}'>{esc(g.get('severity', ''))}</span>"
+            f"<span class='rid'>{esc(g.get('rule_id', ''))}</span></div>"
             f"<h3>{title}</h3>"
-            f"<p class='loc'>{esc(first.get('file',''))}{':' + esc(str(first.get('line',''))) if first.get('line') else ''}</p>"
-            + (f"<p><strong>What we found:</strong> {esc(g.get('description',''))}</p>" if g.get("description") else "")
-            + (f"<p class='why'><strong>Why it matters:</strong> {esc(g.get('why_it_matters',''))}</p>" if g.get("why_it_matters") else "")
-            + (f"<p class='rec'><strong>What to do:</strong> {esc(g.get('recommendation',''))}</p>" if g.get("recommendation") else "")
-            + (f"<details><summary>Show AI fix prompt</summary><pre>{esc(g.get('ai_fix_prompt',''))}</pre></details>" if g.get("ai_fix_prompt") else "")
+            + (f"<p>{esc(b.get('summary') or '')}</p>" if b.get("summary") else "")
+            + (f"<p class='why'><strong>Why it matters:</strong> {esc(b.get('why_it_matters') or '')}</p>" if b.get("why_it_matters") else "")
+            + (f"<p class='rec'><strong>What to do:</strong> {esc(b.get('recommended_action') or '')}</p>" if b.get("recommended_action") else "")
+            + (
+                f"<p class='loc'><strong>Found in:</strong> {esc(first.get('file', ''))}"
+                + (f":{esc(str(first.get('line')))}" if first.get('line') else "")
+                + "</p>"
+                if first
+                else ""
+            )
             + extra
             + "</div>"
         )
+        return html
 
-    top = groups[:5]
-    cards = "\n".join(card(g, i == 0) for i, g in enumerate(top)) if top else ""
-    obs_groups = groups[5:]
-    obs_count = sum(len(g.get("locations", [])) for g in obs_groups)
+    cards = "\n".join(card(g) for g in actionable) if actionable else "<p>No actionable findings detected. Perform a final review before shipping.</p>"
     obs_html = ""
-    if obs_count:
-        obs_cards = "\n".join(card(g) for g in obs_groups)
+    if minor:
+        obs_count = sum(len(g.get("locations", [])) for g in minor)
+        obs_cards = "\n".join(card(g) for g in minor)
         obs_html = (
             f"<h2>{obs_count} additional low-priority observations</h2>"
             f"<details><summary>Show details</summary>{obs_cards}</details>"
         )
-    if not groups:
-        cards = "<p>No findings detected. Perform a final review before shipping.</p>"
+
+    passed = result.get("passed", [])
+    label_map = [
+        ("SECRET-", "secrets", "No obvious exposed secrets"),
+        ("GIT-", "git", "No risky version-control files"),
+        ("CONF-", "config", "No unsafe configuration defaults"),
+        ("DB-", "database", "No database credential exposure"),
+        ("AUTH-", "auth", "Authentication checks look present"),
+        ("API-", "api", "API input validation looks present"),
+        ("PAY-", "payments", "Payment handling looks reasonable"),
+        ("CODE-", "code", "No dangerous code patterns detected"),
+        ("DEPLOY-", "deploy", "No insecure deployment settings"),
+        ("DEP-", "dependencies", "Dependencies look reasonable"),
+    ]
+    cats_with_findings = {g.get("category") for g in groups}
+    good_rows = []
+    for prefix, cat, label in label_map:
+        ran = any(isinstance(r, str) and r.startswith(prefix) for r in passed)
+        if ran and cat not in cats_with_findings:
+            good_rows.append(label)
+    good_html = "".join(f"<span class='ok'>&#10003; {esc(label)}</span> " for label in good_rows)
+    good_html = good_html or "<p class='meta'>No passed checks recorded for this scan.</p>"
+
+    scan_info = (
+        f"{esc(result.get('files_scanned', 0))} files scanned · "
+        f"{esc(result.get('application_files', 0))} application files · "
+        f"{esc(result.get('ignored_files', 0))} ignored/generated/vendor files · "
+        f"{esc(result.get('duration_ms', 0))} ms"
+    )
 
     summary_line = (
         f"{esc(result.get('files_scanned', 0))} files analyzed · "
@@ -278,26 +366,43 @@ def _render_report(scan_id: str, result: dict) -> str:
 body{{font-family:system-ui,sans-serif;background:#0d1117;color:#e6edf3;max-width:860px;margin:0 auto;padding:24px}}
 .banner{{font-family:monospace;text-transform:uppercase;letter-spacing:2px;color:#2dd4bf;font-weight:800}}
 .meta{{color:#8b949e}}
+.hero{{text-align:center;margin:16px 0 8px}}
+.hero-eyebrow{{font-family:monospace;text-transform:uppercase;letter-spacing:3px;color:#8b949e;margin:0}}
+.hero-title{{font-family:monospace;font-size:28px;margin:6px 0 0;letter-spacing:1px}}
 .score{{font-size:56px;font-weight:800;color:#2dd4bf}}
 .status{{font-family:monospace;text-transform:uppercase;color:#fbbf24;font-weight:700}}
+.priority{{font-family:monospace;font-size:13px;color:#8b949e}}
 .card{{border:1px solid #30363d;border-radius:8px;padding:16px;margin:12px 0;background:#161b22}}
+.head{{display:flex;align-items:center;gap:8px;margin-bottom:6px}}
 .sev{{font-weight:700;text-transform:uppercase;font-size:12px;padding:2px 8px;border-radius:4px}}
 .critical{{background:#f85149;color:#fff}} .high{{background:#d29922;color:#0d1117}}
 .medium{{background:#388bfd;color:#fff}} .low{{background:#58a6ff;color:#0d1117}} .informational{{background:#30363d;color:#c9d1d9}}
 .rid{{color:#8b949e;margin-left:8px;font-family:monospace}}
 .loc{{font-family:monospace;color:#2dd4bf}}
 .locs{{margin:8px 0 0}} .locs ul{{margin:6px 0 0;color:#8b949e}}
+.ok{{color:#3fb950;font-family:monospace;margin-right:14px}}
 pre{{background:#0d1117;border:1px solid #30363d;padding:12px;border-radius:6px;white-space:pre-wrap}}
 .why{{color:#c9d1d9}} .rec{{color:#c9d1d9}}
 </style></head><body>
 <p class="banner">Build check complete</p>
 <p class="meta">{summary_line}</p>
-<p class="meta">Your AI-built project was analyzed.</p>
-<div class="score">{score}</div><div class="status">{status}</div>
-<p class="meta">{count_line}</p>
-<h2>Top issues</h2>
+<div class="hero">
+<p class="hero-eyebrow">Your project</p>
+<h1 class="hero-title">{hero_title}</h1>
+<div class="score">{score}</div><div class="status">{grade}</div>
+<p class="meta">{'Your AI-built project was analyzed.'}</p>
+<p class="priority">{count_line}</p>
+</div>
+<h2>Your next step</h2>
+<p>{next_step}</p>
+{f"<h2>Fix these issues with AI</h2><pre>{esc(consolidated)}</pre>" if consolidated else ""}
+<h2>Findings</h2>
 {cards}
 {obs_html}
+<h2>What's already good</h2>
+<p>{good_html}</p>
+<h2>Scan information</h2>
+<p class="meta">{scan_info}</p>
 </body></html>"""
 
 

@@ -44,6 +44,38 @@ const GRADE_COLORS = {
   risk: "#f85149",
 };
 
+const PRIORITY_ROWS = [
+  { sev: "critical", label: "Fix before shipping", color: "#f85149" },
+  { sev: "high", label: "Worth reviewing", color: "#f0883e" },
+  { sev: "medium", label: "Worth reviewing", color: "#fbbf24" },
+  { sev: "low", label: "Good to know", color: "#38bdf8" },
+  { sev: "informational", label: "Good to know", color: "#8b949e" },
+];
+
+const PASSED_LABELS = [
+  { prefix: "SECRET-", category: "secrets", label: "No obvious exposed secrets" },
+  { prefix: "GIT-", category: "git", label: "No risky version-control files" },
+  { prefix: "CONF-", category: "config", label: "No unsafe configuration defaults" },
+  { prefix: "DB-", category: "database", label: "No database credential exposure" },
+  { prefix: "AUTH-", category: "auth", label: "Authentication checks look present" },
+  { prefix: "API-", category: "api", label: "API input validation looks present" },
+  { prefix: "PAY-", category: "payments", label: "Payment handling looks reasonable" },
+  { prefix: "CODE-", category: "code", label: "No dangerous code patterns detected" },
+  { prefix: "DEPLOY-", category: "deploy", label: "No insecure deployment settings" },
+  { prefix: "DEP-", category: "dependencies", label: "Dependencies look reasonable" },
+];
+
+const CONSOLIDATED_STEPS = [
+  "Inspect the existing project first.",
+  "Understand the existing architecture and conventions before making changes.",
+  "Address each listed finding with the smallest appropriate change.",
+  "Do not create duplicate files or duplicate existing modules.",
+  "Preserve existing behavior unless a finding requires changing it.",
+  "Avoid unrelated refactoring.",
+  "Verify your changes by running the relevant tests.",
+  "Summarize what you changed and why.",
+];
+
 const els = {
   ctaScan: document.getElementById("cta-scan"),
   viewLanding: document.getElementById("view-landing"),
@@ -74,12 +106,26 @@ const els = {
   reviewReport: document.getElementById("review-report"),
   scanAgainComplete: document.getElementById("scan-again-complete"),
   resultsTitle: document.getElementById("results-title"),
+  heroTitle: document.getElementById("hero-title"),
   scoreNumber: document.getElementById("results-score"),
   scoreGrade: document.getElementById("results-grade"),
   scoreRing: document.getElementById("results-score-ring"),
   summary: document.getElementById("results-summary"),
   findingsList: document.getElementById("findings-list"),
-  passedSection: document.getElementById("passed-section"),
+  prioritySection: document.getElementById("priority-section"),
+  priorityList: document.getElementById("priority-list"),
+  nextStepSection: document.getElementById("next-step-section"),
+  nextStepText: document.getElementById("next-step-text"),
+  fixWithAi: document.getElementById("fix-with-ai"),
+  consolidatedSection: document.getElementById("consolidated-section"),
+  consolidatedIntro: document.getElementById("consolidated-intro"),
+  consolidatedToggle: document.getElementById("consolidated-toggle"),
+  consolidatedCopy: document.getElementById("consolidated-copy"),
+  consolidatedPrompt: document.getElementById("consolidated-prompt"),
+  whatsGoodSection: document.getElementById("whats-good-section"),
+  whatsGoodList: document.getElementById("whats-good-list"),
+  scanInfoSection: document.getElementById("scan-info-section"),
+  scanInfoText: document.getElementById("scan-info-text"),
   downloadReport: document.getElementById("download-report"),
   scanAgain: document.getElementById("scan-again"),
 };
@@ -178,61 +224,34 @@ function buildFindingCard(group, index) {
     card.appendChild(r);
   }
 
+  const locations = Array.isArray(group.locations) ? group.locations : [];
+  if (locations.length) {
+    const foundWrap = makeEl("div", "finding-locations-block");
+    foundWrap.appendChild(makeEl("p", "detail-heading", "Found in:"));
+    const locs = makeEl("ul", "finding-locations");
+    locations.forEach(function (loc) {
+      locs.appendChild(makeEl("li", "finding-location", (loc.file || "?") + (loc.line ? ":" + loc.line : "")));
+    });
+    foundWrap.appendChild(locs);
+    card.appendChild(foundWrap);
+  }
+
+  const toggle = makeEl("button", "explain-toggle", "Show advanced details");
+  toggle.type = "button";
+  toggle.setAttribute("aria-expanded", "false");
+  toggle.setAttribute("aria-controls", uid + "-detail");
+
   const detail = makeEl("div", "finding-detail");
   detail.hidden = true;
   detail.id = uid + "-detail";
 
-  const locations = Array.isArray(group.locations) ? group.locations : [];
-  if (locations.length) {
-    detail.appendChild(makeEl("p", "detail-heading", "Where it was found"));
-    const locs = makeEl("ul", "finding-locations");
-    locations.forEach(function (loc) {
-      const li = makeEl("li", "finding-location", (loc.file || "?") + (loc.line ? ":" + loc.line : ""));
-      locs.appendChild(li);
-    });
-    detail.appendChild(locs);
-  }
-
-  if (group.ai_fix_prompt) {
-    const fixWrap = makeEl("div", "fix-prompt");
-    const copyBtn = makeEl("button", "copy-btn", "Copy AI Fix Prompt");
-    copyBtn.type = "button";
-    copyBtn.hidden = true;
-    copyBtn.setAttribute("aria-label", "Copy AI fix prompt for " + (b.title || group.title || "this finding"));
-    copyBtn.addEventListener("click", function () {
-      copyText(group.ai_fix_prompt, copyBtn);
-    });
-    const promptEl = makeEl("pre", "fix-prompt-text", group.ai_fix_prompt);
-    promptEl.hidden = true;
-    promptEl.id = uid + "-prompt";
-    const viewBtn = makeEl("button", "explain-toggle", "View AI Fix Prompt");
-    viewBtn.type = "button";
-    viewBtn.setAttribute("aria-expanded", "false");
-    viewBtn.setAttribute("aria-controls", uid + "-prompt");
-    viewBtn.addEventListener("click", function () {
-      const willShow = promptEl.hidden;
-      promptEl.hidden = !willShow;
-      copyBtn.hidden = !willShow;
-      viewBtn.textContent = willShow ? "Hide AI Fix Prompt" : "View AI Fix Prompt";
-      viewBtn.setAttribute("aria-expanded", String(willShow));
-    });
-    fixWrap.appendChild(viewBtn);
-    fixWrap.appendChild(copyBtn);
-    fixWrap.appendChild(promptEl);
-    detail.appendChild(fixWrap);
-  }
-
   const tech = group.technical || {};
-  const techDetails = makeEl("details", "tech-details");
-  const techSummary = makeEl("summary", null, "Technical details");
-  techDetails.appendChild(techSummary);
   const techList = makeEl("dl", "tech-list");
   [
     ["Technical name", tech.name || group.title],
-    ["Rule ID", tech.rule_id || group.rule_id],
+    ["Rule", tech.rule_id || group.rule_id],
     ["Severity", tech.severity || group.severity],
     ["Confidence", tech.confidence || group.confidence],
-    ["First location", locations.length ? locations[0].file + (locations[0].line ? ":" + locations[0].line : "") : ""],
   ].forEach(function (row) {
     if (!row[1]) return;
     const dt = makeEl("dt", null, row[0]);
@@ -253,17 +272,41 @@ function buildFindingCard(group, index) {
     techList.appendChild(dt);
     techList.appendChild(dd);
   }
-  techDetails.appendChild(techList);
-  detail.appendChild(techDetails);
+  detail.appendChild(techList);
 
-  const toggle = makeEl("button", "explain-toggle", "How do I fix this?");
-  toggle.type = "button";
-  toggle.setAttribute("aria-expanded", "false");
-  toggle.setAttribute("aria-controls", uid + "-detail");
+  if (group.ai_fix_prompt) {
+    const fixWrap = makeEl("div", "fix-prompt");
+    const promptEl = makeEl("pre", "fix-prompt-text", group.ai_fix_prompt);
+    promptEl.hidden = true;
+    promptEl.id = uid + "-prompt";
+    const copyBtn = makeEl("button", "copy-btn", "Copy AI Fix Prompt");
+    copyBtn.type = "button";
+    copyBtn.hidden = true;
+    copyBtn.setAttribute("aria-label", "Copy AI fix prompt for " + (b.title || group.title || "this finding"));
+    copyBtn.addEventListener("click", function () {
+      copyText(group.ai_fix_prompt, copyBtn);
+    });
+    const viewBtn = makeEl("button", "explain-toggle", "View AI Fix Prompt");
+    viewBtn.type = "button";
+    viewBtn.setAttribute("aria-expanded", "false");
+    viewBtn.setAttribute("aria-controls", uid + "-prompt");
+    viewBtn.addEventListener("click", function () {
+      const willShow = promptEl.hidden;
+      promptEl.hidden = !willShow;
+      copyBtn.hidden = !willShow;
+      viewBtn.textContent = willShow ? "Hide AI Fix Prompt" : "View AI Fix Prompt";
+      viewBtn.setAttribute("aria-expanded", String(willShow));
+    });
+    fixWrap.appendChild(viewBtn);
+    fixWrap.appendChild(copyBtn);
+    fixWrap.appendChild(promptEl);
+    detail.appendChild(fixWrap);
+  }
+
   toggle.addEventListener("click", function () {
     const willShow = detail.hidden;
     detail.hidden = !willShow;
-    toggle.textContent = willShow ? "Hide details" : "How do I fix this?";
+    toggle.textContent = willShow ? "Hide advanced details" : "Show advanced details";
     toggle.setAttribute("aria-expanded", String(willShow));
   });
   card.appendChild(toggle);
@@ -318,10 +361,26 @@ function gradeForScore(score) {
   return { label: "HIGH RISK \u2014 FIX BEFORE SHIPPING", color: GRADE_COLORS.risk };
 }
 
+function beginnerLabelForScore(score) {
+  if (score >= 90) return "LOOKING GOOD";
+  if (score >= 75) return "ALMOST READY";
+  if (score >= 50) return "NEEDS ATTENTION";
+  return "DON'T SHIP YET";
+}
+
+function heroTitleForScore(score) {
+  if (score >= 90) return "IS LOOKING GOOD";
+  if (score >= 75) return "IS ALMOST READY";
+  if (score >= 50) return "NEEDS ATTENTION";
+  return "DON'T SHIP YET";
+}
+
 function renderResults(result) {
   currentResult = result;
   const score = typeof result.score === "number" ? Math.max(0, Math.min(100, Math.round(result.score))) : null;
   const grade = score === null ? { label: "Unknown", color: "#8b949e" } : gradeForScore(score);
+
+  els.heroTitle.textContent = score === null ? "SCAN RESULTS" : heroTitleForScore(score);
 
   els.scoreNumber.textContent = score === null ? "--" : String(score);
   els.scoreGrade.textContent = grade.label;
@@ -343,13 +402,15 @@ function renderResults(result) {
       ? "1 thing needs your attention before you ship."
       : actionable.length + " things need your attention before you ship.";
   } else {
-    els.scoreGrade.textContent = "YOUR APP LOOKS GOOD";
-    els.scoreGrade.style.color = GRADE_COLORS.looking;
     els.summary.textContent = "No critical or high-priority issues were detected. Before launching, perform your normal manual testing and review.";
   }
 
+  renderPrioritySummary(groups);
+  renderNextStep(groups);
+  renderConsolidatedPrompt(groups);
   renderFindings(groups, result);
-  renderPassed(result.passed || []);
+  renderWhatsAlreadyGood(result, groups);
+  renderScanInfo(result);
 
   els.downloadReport.disabled = !currentScanId && !result.scan_id;
   showView(els.viewResults);
@@ -367,7 +428,7 @@ function renderScanComplete(result) {
   });
 
   els.completeScore.textContent = score === null ? "--" : String(score);
-  els.completeGrade.textContent = grade.label;
+  els.completeGrade.textContent = score === null ? "Pending" : beginnerLabelForScore(score);
   els.completeGrade.style.color = grade.color;
 
   if (actionable.length) {
@@ -473,16 +534,126 @@ function renderFindings(groups, result) {
   els.findingsList.appendChild(scan);
 }
 
-function renderPassed(passed) {
-  els.passedSection.replaceChildren();
-  if (!Array.isArray(passed) || !passed.length) {
-    els.passedSection.appendChild(makeEl("p", "empty-note", "No passed checks recorded."));
+function renderPrioritySummary(groups) {
+  const counts = {};
+  PRIORITY_ROWS.forEach(function (row) { counts[row.sev] = 0; });
+  groups.forEach(function (g) {
+    if (counts[g.severity] !== undefined) counts[g.severity] += 1;
+  });
+  els.priorityList.replaceChildren();
+  const visible = PRIORITY_ROWS.filter(function (row) { return counts[row.sev] > 0; });
+  els.prioritySection.hidden = !visible.length;
+  visible.forEach(function (row) {
+    const line = makeEl("div", "priority-row");
+    const dot = makeEl("span", "priority-dot");
+    dot.style.backgroundColor = row.color;
+    line.appendChild(dot);
+    line.appendChild(makeEl("span", "priority-count", String(counts[row.sev])));
+    line.appendChild(makeEl("span", "priority-label", row.label));
+    els.priorityList.appendChild(line);
+  });
+}
+
+function renderNextStep(groups) {
+  const hasCritical = groups.some(function (g) { return g.severity === "critical"; });
+  const hasReview = groups.some(function (g) { return g.severity === "high" || g.severity === "medium"; });
+  const hasMinor = groups.some(function (g) { return g.severity === "low" || g.severity === "informational"; });
+  els.nextStepSection.hidden = false;
+  els.fixWithAi.hidden = true;
+  if (hasCritical) {
+    els.nextStepText.textContent = "Fix the critical issues first. The remaining items can be reviewed afterward.";
+    els.fixWithAi.hidden = false;
+  } else if (hasReview) {
+    els.nextStepText.textContent = "Review the highlighted issues and fix the ones that matter for your app before you ship.";
+    els.fixWithAi.hidden = false;
+  } else if (hasMinor) {
+    els.nextStepText.textContent = "These are minor suggestions. Review them when you have time.";
+  } else {
+    els.nextStepText.textContent = "Continue with your normal testing and deployment review.";
+  }
+}
+
+function buildConsolidatedPrompt(groups) {
+  const actionable = groups.filter(function (g) {
+    return g.severity === "critical" || g.severity === "high" || g.severity === "medium";
+  });
+  if (!actionable.length) return null;
+  const parts = [];
+  parts.push("Ship Safe found " + actionable.length + " issue" + (actionable.length === 1 ? "" : "s") + " worth fixing before you ship.");
+  parts.push("");
+  parts.push("Instructions:");
+  parts.push(CONSOLIDATED_STEPS.join("\n"));
+  actionable.forEach(function (g, i) {
+    const b = g.beginner || {};
+    const loc = (g.locations && g.locations.length)
+      ? g.locations[0].file + (g.locations[0].line ? ":" + g.locations[0].line : "")
+      : "unknown location";
+    parts.push("");
+    parts.push((i + 1) + ". " + String(g.severity || "").toUpperCase() + " — " + (b.title || g.title || "Finding"));
+    parts.push("   Where: " + loc);
+    parts.push("   What happened: " + (b.summary || g.description || ""));
+    parts.push("   Why it matters: " + (b.why_it_matters || g.why_it_matters || ""));
+    parts.push("   What to do: " + (b.recommended_action || g.recommendation || ""));
+    if (g.ai_fix_prompt) parts.push("   Suggested fix: " + g.ai_fix_prompt);
+  });
+  return parts.join("\n").trim();
+}
+
+function renderConsolidatedPrompt(groups) {
+  const prompt = buildConsolidatedPrompt(groups);
+  els.consolidatedPrompt.hidden = true;
+  els.consolidatedCopy.hidden = true;
+  els.consolidatedToggle.textContent = "Show AI Fix Prompt";
+  els.consolidatedToggle.setAttribute("aria-expanded", "false");
+  if (!prompt) {
+    els.consolidatedSection.hidden = true;
     return;
   }
-  passed.forEach(function (item) {
-    const name = typeof item === "string" ? item : item.name || item.title || item.rule_id || "Passed check";
-    els.passedSection.appendChild(makeEl("span", "passed-chip", name));
+  const actionable = groups.filter(function (g) {
+    return g.severity === "critical" || g.severity === "high" || g.severity === "medium";
   });
+  els.consolidatedSection.hidden = false;
+  els.consolidatedIntro.textContent = "Ship Safe found " + actionable.length + " issue" + (actionable.length === 1 ? "" : "s") + " worth fixing before launch. We've combined the relevant findings into one prompt you can paste into your AI coding assistant.";
+  els.consolidatedPrompt.textContent = prompt;
+  els.consolidatedToggle.onclick = function () {
+    const willShow = els.consolidatedPrompt.hidden;
+    els.consolidatedPrompt.hidden = !willShow;
+    els.consolidatedCopy.hidden = !willShow;
+    els.consolidatedToggle.textContent = willShow ? "Hide AI Fix Prompt" : "Show AI Fix Prompt";
+    els.consolidatedToggle.setAttribute("aria-expanded", String(willShow));
+  };
+  els.consolidatedCopy.onclick = function () {
+    copyText(prompt, els.consolidatedCopy);
+  };
+}
+
+function renderWhatsAlreadyGood(result, groups) {
+  const groupCats = new Set(groups.map(function (g) { return g.category; }));
+  const passed = result.passed || [];
+  const rows = [];
+  PASSED_LABELS.forEach(function (item) {
+    const ran = passed.some(function (rid) { return typeof rid === "string" && rid.indexOf(item.prefix) === 0; });
+    if (ran && !groupCats.has(item.category)) rows.push(item.label);
+  });
+  els.whatsGoodList.replaceChildren();
+  els.whatsGoodSection.hidden = !rows.length;
+  rows.forEach(function (label) {
+    els.whatsGoodList.appendChild(makeEl("span", "passed-chip", label));
+  });
+}
+
+function renderScanInfo(result) {
+  const parts = [];
+  if (typeof result.application_files === "number") parts.push(result.application_files.toLocaleString() + " files checked");
+  if (typeof result.ignored_files === "number") parts.push(result.ignored_files.toLocaleString() + " ignored/generated/vendor files");
+  if (result.summary && typeof result.summary.total_findings === "number") {
+    parts.push(result.summary.total_findings + " finding" + (result.summary.total_findings === 1 ? "" : "s"));
+  }
+  if (typeof result.duration_ms === "number") parts.push(formatDuration(result.duration_ms) + " scan time");
+  if (result.project_type && result.project_type !== "unknown") parts.push("Project type: " + result.project_type);
+  if (Array.isArray(result.frameworks) && result.frameworks.length) parts.push("Frameworks: " + result.frameworks.join(", "));
+  els.scanInfoText.textContent = parts.join(" · ");
+  els.scanInfoSection.hidden = !parts.length;
 }
 
 function activitySection(entry, isCurrent) {
@@ -928,5 +1099,10 @@ els.progressRetry.addEventListener("click", function () {
 });
 
 els.downloadReport.addEventListener("click", downloadReport);
+
+els.fixWithAi.addEventListener("click", function () {
+  els.consolidatedSection.hidden = false;
+  els.consolidatedSection.scrollIntoView({ behavior: "smooth", block: "start" });
+});
 
 showView(els.viewLanding);
