@@ -28,6 +28,10 @@ const PHASE_TITLES = {
   error: "Scan could not be completed",
 };
 
+const PHASE_MESSAGES = {
+  discovering: "We're looking through your project structure.",
+};
+
 const SEVERITIES = ["critical", "high", "medium", "low", "informational"];
 const SEVERITY_TEXT = {
   critical: "Fix this first",
@@ -56,6 +60,7 @@ const els = {
   viewLanding: document.getElementById("view-landing"),
   viewUpload: document.getElementById("view-upload"),
   viewProgress: document.getElementById("view-progress"),
+  viewScanComplete: document.getElementById("view-scan-complete"),
   viewResults: document.getElementById("view-results"),
   dropzone: document.getElementById("upload-dropzone"),
   fileInput: document.getElementById("upload-input"),
@@ -74,6 +79,17 @@ const els = {
   progressError: document.getElementById("progress-error"),
   progressActions: document.getElementById("progress-actions"),
   progressRetry: document.getElementById("progress-retry"),
+  completeTitle: document.getElementById("complete-title"),
+  completeMessage: document.getElementById("complete-message"),
+  completeScore: document.getElementById("complete-score"),
+  completeGrade: document.getElementById("complete-grade"),
+  completeSummary: document.getElementById("complete-summary"),
+  completeStats: document.getElementById("complete-stats"),
+  completeDuration: document.getElementById("complete-duration"),
+  completeLive: document.getElementById("complete-live"),
+  reviewReport: document.getElementById("review-report"),
+  scanAgainComplete: document.getElementById("scan-again-complete"),
+  resultsTitle: document.getElementById("results-title"),
   scoreNumber: document.getElementById("results-score"),
   scoreGrade: document.getElementById("results-grade"),
   scoreRing: document.getElementById("results-score-ring"),
@@ -88,9 +104,10 @@ let selectedFile = null;
 let currentScanId = null;
 let currentResult = null;
 let lastAnnouncedPhase = null;
+let lastAnnouncedMessage = null;
 
 function showView(viewName) {
-  [els.viewLanding, els.viewUpload, els.viewProgress, els.viewResults].forEach(function (v) {
+  [els.viewLanding, els.viewUpload, els.viewProgress, els.viewScanComplete, els.viewResults].forEach(function (v) {
     const show = v === viewName;
     v.hidden = !show;
     v.classList.toggle("active", show);
@@ -350,6 +367,49 @@ function renderResults(result) {
 
   els.downloadReport.disabled = !currentScanId && !result.scan_id;
   showView(els.viewResults);
+  els.resultsTitle.focus();
+}
+
+function renderScanComplete(result) {
+  currentResult = result;
+  const score = typeof result.score === "number" ? Math.max(0, Math.min(100, Math.round(result.score))) : null;
+  const grade = score === null ? { label: "Unknown", color: "#8b949e" } : gradeForScore(score);
+
+  const groups = result.groups || [];
+  const actionable = groups.filter(function (g) {
+    return g.severity === "critical" || g.severity === "high" || g.severity === "medium";
+  });
+
+  els.completeScore.textContent = score === null ? "--" : String(score);
+  els.completeGrade.textContent = grade.label;
+  els.completeGrade.style.color = grade.color;
+
+  if (actionable.length) {
+    els.completeMessage.textContent = "Your project has been analyzed.";
+    els.completeSummary.textContent = actionable.length === 1
+      ? "1 thing needs your attention before you ship."
+      : actionable.length + " things need your attention before you ship.";
+  } else {
+    els.completeMessage.textContent = "Your project looks good.";
+    els.completeSummary.textContent = "No critical or high-priority issues were detected.";
+  }
+
+  const parts = [];
+  if (typeof result.application_files === "number") parts.push(result.application_files + " application files checked");
+  if (typeof result.ignored_files === "number") parts.push(result.ignored_files + " ignored/generated/vendor files");
+  els.completeStats.hidden = !parts.length;
+  if (parts.length) els.completeStats.textContent = parts.join(" \u00b7 ");
+
+  const hasDuration = typeof result.duration_ms === "number";
+  els.completeDuration.hidden = !hasDuration;
+  if (hasDuration) els.completeDuration.textContent = "Scan took " + formatDuration(result.duration_ms);
+
+  els.completeLive.textContent = score === null
+    ? "Scan complete. Your results are ready."
+    : "Scan complete. Your Ship Score is " + score + ".";
+
+  showView(els.viewScanComplete);
+  els.completeTitle.focus();
 }
 
 function sectionHeading(label) {
@@ -479,6 +539,8 @@ function renderPhaseTrackerError() {
 
 function resetProgressUi() {
   lastAnnouncedPhase = null;
+  lastAnnouncedMessage = null;
+  els.progressMessage.textContent = "We're looking for things that could cause problems after launch.";
   els.progressBar.classList.remove("indeterminate");
   els.progressBar.removeAttribute("aria-valuenow");
   els.progressFraction.hidden = true;
@@ -503,6 +565,11 @@ function renderProgress(p) {
   if (title !== lastAnnouncedPhase) {
     els.progressTitle.textContent = title;
     lastAnnouncedPhase = title;
+  }
+  const phaseMessage = PHASE_MESSAGES[p.phase];
+  if (phaseMessage && phaseMessage !== lastAnnouncedMessage) {
+    els.progressMessage.textContent = phaseMessage;
+    lastAnnouncedMessage = phaseMessage;
   }
   els.progressMessage.hidden = p.phase === "uploading";
 
@@ -603,9 +670,11 @@ async function pollScan(scanId) {
     const status = data.status ? String(data.status).toLowerCase() : null;
     if (status === "complete" || status === "completed" || status === "done") {
       if (data.result) {
-        renderResults(data.result);
+        currentResult = data.result;
+        renderScanComplete(data.result);
       } else if (typeof data.score === "number") {
-        renderResults(data);
+        currentResult = data;
+        renderScanComplete(data);
       } else {
         renderError("Scan finished but no result payload was returned.");
       }
@@ -847,6 +916,15 @@ els.uploadButton.addEventListener("click", function () {
 });
 
 els.scanAgain.addEventListener("click", function () {
+  resetUpload();
+  showView(els.viewUpload);
+});
+
+els.reviewReport.addEventListener("click", function () {
+  if (currentResult) renderResults(currentResult);
+});
+
+els.scanAgainComplete.addEventListener("click", function () {
   resetUpload();
   showView(els.viewUpload);
 });
