@@ -438,6 +438,80 @@ code {
   margin-top: 20px;
 }
 
+.complete-icon {
+  font-size: 52px;
+  line-height: 1;
+  color: var(--ok);
+  margin: 0 auto 10px;
+}
+
+.complete-panel .progress-title {
+  margin-bottom: 4px;
+}
+
+.complete-score {
+  display: flex;
+  align-items: baseline;
+  justify-content: center;
+  gap: 6px;
+  margin-top: 18px;
+}
+
+.complete-score .score-number {
+  font-size: 72px;
+}
+
+.score-total {
+  font-family: var(--font-mono);
+  font-size: 22px;
+  color: var(--text-muted);
+}
+
+.complete-grade {
+  font-family: var(--font-mono);
+  font-size: 15px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  margin: 2px 0 16px;
+}
+
+.complete-summary {
+  font-size: 15px;
+  color: var(--text);
+  margin: 0 auto 6px;
+  max-width: 46ch;
+}
+
+.complete-duration {
+  font-family: var(--font-mono);
+  font-size: 13px;
+  color: var(--text-muted);
+  margin: 8px 0 0;
+}
+
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+.progress-title:focus,
+.panel-title:focus {
+  outline: none;
+}
+
+@media (max-width: 560px) {
+  .complete-score .score-number {
+    font-size: 56px;
+  }
+}
+
 @media (max-width: 560px) {
   .progress-panel {
     padding: 28px 16px;

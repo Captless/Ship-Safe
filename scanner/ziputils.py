@@ -67,7 +67,8 @@ def safe_extract_zip(zip_path: str) -> str:
         raise
 
 
-def iter_text_files(root: str, max_files: int = 4000):
+def iter_text_files(root: str, max_files: int = 4000, progress=None):
+    count = 0
     for dirpath, _dirnames, filenames in os.walk(root):
         for name in filenames:
             full = os.path.join(dirpath, name)
@@ -76,7 +77,11 @@ def iter_text_files(root: str, max_files: int = 4000):
                 continue
             try:
                 with open(full, "r", encoding="utf-8", errors="strict") as f:
-                    yield FileSnapshot(path=rel, content=f.read())
+                    content = f.read()
+                count += 1
+                if progress is not None:
+                    progress({"files_discovered": count, "current_file": rel})
+                yield FileSnapshot(path=rel, content=content)
             except (UnicodeDecodeError, OSError):
                 try:
                     with open(full, "rb") as f:
@@ -84,11 +89,18 @@ def iter_text_files(root: str, max_files: int = 4000):
                 except OSError:
                     continue
                 if b"\x00" in head:
+                    count += 1
+                    if progress is not None:
+                        progress({"files_discovered": count, "current_file": rel})
                     yield FileSnapshot(path=rel, content="", binary=True)
                     continue
                 try:
                     with open(full, "r", encoding="latin-1") as f:
-                        yield FileSnapshot(path=rel, content=f.read())
+                        content = f.read()
+                    count += 1
+                    if progress is not None:
+                        progress({"files_discovered": count, "current_file": rel})
+                    yield FileSnapshot(path=rel, content=content)
                 except OSError:
                     continue
 

@@ -88,10 +88,37 @@
       </div>
     </section>
 
+    <section id="view-scan-complete" class="view" aria-label="Scan complete" hidden>
+      <div class="panel progress-panel complete-panel">
+        <div class="complete-icon" aria-hidden="true">&#10003;</div>
+        <h2 id="complete-title" class="progress-title" role="status" tabindex="-1">Scan Complete</h2>
+        <p id="complete-message" class="progress-message">Your project has been analyzed.</p>
+
+        <div class="complete-score">
+          <span id="complete-score" class="score-number">--</span>
+          <span class="score-total">/ 100</span>
+        </div>
+        <p id="complete-grade" class="complete-grade">Pending</p>
+
+        <p id="complete-summary" class="complete-summary">Your results are ready.</p>
+
+        <p id="complete-stats" class="progress-file-stats" hidden></p>
+        <p id="complete-duration" class="complete-duration" hidden></p>
+        <p id="complete-live" class="sr-only" role="status" aria-live="polite"></p>
+
+        <div class="progress-actions">
+          <button id="review-report" class="btn btn-primary" type="button">Review Report</button>
+        </div>
+        <div class="progress-actions">
+          <button id="scan-again-complete" class="btn btn-secondary" type="button">Scan another project</button>
+        </div>
+      </div>
+    </section>
+
     <section id="view-results" class="view" aria-label="Scan results" hidden>
       <div class="panel">
         <div class="results-header">
-          <h2 class="panel-title">Scan Results</h2>
+          <h2 id="results-title" class="panel-title" tabindex="-1">Scan Results</h2>
           <button id="scan-again" class="btn btn-secondary" type="button">Scan another project</button>
         </div>
 

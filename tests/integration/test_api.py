@@ -2,7 +2,7 @@ import time
 
 from fastapi.testclient import TestClient
 
-from backend.main import app, _storage, _active, ScanState
+from backend.main import app, _storage, _active, ScanState, _report_discovery
 
 client = TestClient(app)
 
@@ -112,6 +112,49 @@ def test_running_scan_returns_progress():
         assert p["findings_found"] == 3
     finally:
         _active.clear()
+
+
+def test_discovery_reporter_updates_state():
+    _active.clear()
+    state = ScanState("disc123")
+    _active["disc123"] = state
+    try:
+        reporter = _report_discovery(state)
+        reporter({"files_discovered": 3, "current_file": "src/app.py"})
+        assert state.phase == "discovering"
+        assert state.message == "Discovering project files"
+        assert state.files_discovered == 3
+        assert state.current_file == "src/app.py"
+        reporter({"files_discovered": 7, "current_file": "src/app.py"})
+        assert state.files_discovered == 7
+    finally:
+        _active.clear()
+
+
+def test_active_complete_state_returns_result():
+    _active.clear()
+    state = ScanState("comp123")
+    state.phase = "complete"
+    state.status = "complete"
+    state.message = "Scan complete"
+    state.result = {"score": 72, "grade": "REVIEW BEFORE SHIPPING", "groups": []}
+    _active["comp123"] = state
+    try:
+        g = client.get("/api/scans/comp123")
+        assert g.status_code == 200
+        body = g.json()
+        assert body["status"] == "complete"
+        assert body["result"]["score"] == 72
+    finally:
+        _active.clear()
+
+
+def test_completed_result_has_completion_fields(vuln_zip):
+    with open(vuln_zip, "rb") as f:
+        r = client.post("/api/scans", files={"file": ("p.zip", f, "application/zip")})
+    result = _poll_scan(r.json()["scan_id"])["result"]
+    for key in ("score", "grade", "groups", "application_files", "ignored_files", "duration_ms", "summary"):
+        assert key in result
 
 
 def test_scan_then_get_and_report(vuln_zip):

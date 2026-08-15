@@ -82,6 +82,12 @@ def _report_progress(state: ScanState):
     return report
 
 
+def _report_discovery(state: ScanState):
+    def report(fields: dict) -> None:
+        _apply_state(state, phase="discovering", message="Discovering project files", **fields)
+    return report
+
+
 def _save_upload(upload: UploadFile) -> str:
     if upload.content_type not in ("application/zip", "application/x-zip-compressed", ""):
         raise HTTPException(status_code=400, detail="Only ZIP files are supported.")
@@ -134,16 +140,16 @@ def _run_scan(scan_id: str, zip_path: str) -> None:
         _apply_state(state, phase="preparing", message="Preparing your project")
         workspace = safe_extract_zip(zip_path)
         _apply_state(state, phase="discovering", message="Discovering project files")
-        files = list(iter_text_files(workspace))
+        files = list(iter_text_files(workspace, progress=_report_discovery(state)))
         _apply_state(state, files_discovered=len(files))
         result = scan_root(workspace, files, progress=_report_progress(state))
         result_dict = result.to_dict()
         _apply_state(state, phase="building_report", message="Preparing your report")
         _apply_state(state, result=result_dict)
+        _apply_state(state, phase="complete", status="complete", message="Scan complete")
         with _lock:
             _storage[scan_id] = {"result": result_dict, "created": time.time()}
             _active.pop(scan_id, None)
-        _apply_state(state, phase="complete", status="complete", message="Scan complete")
     except ZipSafetyError as e:
         _fail_scan(state, f"Could not open the archive. {e}")
     except Exception:
