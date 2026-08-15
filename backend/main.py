@@ -1,21 +1,22 @@
 from __future__ import annotations
 
+import asyncio
 import json
 import os
 import tempfile
+import threading
 import time
+import traceback
 import uuid
 
 from fastapi import FastAPI, File, HTTPException, UploadFile
-from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
+from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
 
 from scanner.ziputils import safe_extract_zip, iter_text_files, cleanup_workspace, ZipSafetyError
 from scanner.engine import scan_root
-from scanner.models import ScanResult
 
 MAX_UPLOAD = 100 * 1024 * 1024
-ALLOWED_EXTS = {".zip"}
 REPORT_TTL_S = 3600
 
 app = FastAPI(title="Ship Safe", version="1.0.0")
@@ -23,6 +24,62 @@ app = FastAPI(title="Ship Safe", version="1.0.0")
 FRONTEND = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "frontend")
 
 _storage: dict[str, dict] = {}
+_active: dict[str, "ScanState"] = {}
+_lock = threading.Lock()
+
+
+class ScanState:
+    def __init__(self, scan_id: str) -> None:
+        self.scan_id = scan_id
+        self.status = "running"
+        self.phase = "uploading"
+        self.message = "Uploading your project"
+        self.current: int | None = None
+        self.total: int | None = None
+        self.current_file: str | None = None
+        self.files_discovered: int | None = None
+        self.files_skipped: int | None = None
+        self.files_to_scan: int | None = None
+        self.files_analyzed: int | None = None
+        self.findings_found: int | None = None
+        self.result: dict | None = None
+        self.error: str | None = None
+        self.created = time.time()
+
+    def to_dict(self) -> dict:
+        return {
+            "phase": self.phase,
+            "message": self.message,
+            "current": self.current,
+            "total": self.total,
+            "current_file": self.current_file,
+            "files_discovered": self.files_discovered,
+            "files_skipped": self.files_skipped,
+            "files_to_scan": self.files_to_scan,
+            "files_analyzed": self.files_analyzed,
+            "findings_found": self.findings_found,
+        }
+
+
+def _apply_state(state: ScanState, **kwargs) -> None:
+    with _lock:
+        for key, value in kwargs.items():
+            if value is not None:
+                setattr(state, key, value)
+
+
+def _report_progress(state: ScanState):
+    def report(fields: dict) -> None:
+        phase = fields.pop("phase", None)
+        if phase == "scanning":
+            _apply_state(state, phase="scanning", message="Checking your code", **fields)
+        elif phase == "filtering":
+            _apply_state(state, phase="filtering", message="Filtering files", **fields)
+        elif phase == "reviewing":
+            _apply_state(state, phase="reviewing", message="Reviewing findings")
+        elif phase == "building_report":
+            _apply_state(state, phase="building_report", message="Preparing your report", **fields)
+    return report
 
 
 def _save_upload(upload: UploadFile) -> str:
@@ -58,26 +115,40 @@ def health() -> dict:
 
 @app.post("/api/scans")
 async def create_scan(file: UploadFile = File(...)) -> dict:
-    zip_path = None
+    zip_path = _save_upload(file)
+    scan_id = uuid.uuid4().hex[:12]
+    state = ScanState(scan_id)
+    with _lock:
+        _active[scan_id] = state
+    _prune_storage()
+    asyncio.create_task(asyncio.to_thread(_run_scan, scan_id, zip_path))
+    return {"scan_id": scan_id, "status": "running"}
+
+
+def _run_scan(scan_id: str, zip_path: str) -> None:
+    state = _active.get(scan_id)
+    if state is None:
+        return
     workspace = None
     try:
-        zip_path = _save_upload(file)
+        _apply_state(state, phase="preparing", message="Preparing your project")
         workspace = safe_extract_zip(zip_path)
+        _apply_state(state, phase="discovering", message="Discovering project files")
         files = list(iter_text_files(workspace))
-        result = scan_root(workspace, files)
-        scan_id = uuid.uuid4().hex[:12]
-        _storage[scan_id] = {
-            "result": result.to_dict(),
-            "created": time.time(),
-        }
-        _prune_storage()
-        return {"scan_id": scan_id, "status": "complete", "result": result.to_dict()}
-    except HTTPException:
-        raise
+        _apply_state(state, files_discovered=len(files))
+        result = scan_root(workspace, files, progress=_report_progress(state))
+        result_dict = result.to_dict()
+        _apply_state(state, phase="building_report", message="Preparing your report")
+        _apply_state(state, result=result_dict)
+        with _lock:
+            _storage[scan_id] = {"result": result_dict, "created": time.time()}
+            _active.pop(scan_id, None)
+        _apply_state(state, phase="complete", status="complete", message="Scan complete")
     except ZipSafetyError as e:
-        raise HTTPException(status_code=400, detail=str(e))
+        _fail_scan(state, f"Could not open the archive. {e}")
     except Exception:
-        raise HTTPException(status_code=500, detail="Scan failed. The archive may be malformed.")
+        traceback.print_exc()
+        _fail_scan(state, "We couldn't finish analyzing this project. The archive may be malformed.")
     finally:
         if zip_path and os.path.exists(zip_path):
             try:
@@ -88,8 +159,20 @@ async def create_scan(file: UploadFile = File(...)) -> dict:
             cleanup_workspace(workspace)
 
 
+def _fail_scan(state: ScanState, message: str) -> None:
+    _apply_state(state, status="error", phase="error", message="Scan could not be completed", error=message)
+
+
 @app.get("/api/scans/{scan_id}")
 def get_scan(scan_id: str) -> dict:
+    with _lock:
+        state = _active.get(scan_id)
+    if state is not None:
+        if state.status == "complete":
+            return {"scan_id": scan_id, "status": "complete", "result": state.result}
+        if state.status == "error":
+            return {"scan_id": scan_id, "status": "error", "error": state.error or "The scan failed."}
+        return {"scan_id": scan_id, "status": "running", "progress": state.to_dict()}
     entry = _storage.get(scan_id)
     if not entry:
         raise HTTPException(status_code=404, detail="Scan not found.")
@@ -101,6 +184,10 @@ def _prune_storage() -> None:
     for k in list(_storage):
         if now - _storage[k]["created"] > REPORT_TTL_S:
             del _storage[k]
+    with _lock:
+        for k in list(_active):
+            if now - _active[k].created > REPORT_TTL_S:
+                del _active[k]
 
 
 @app.get("/api/scans/{scan_id}/report")

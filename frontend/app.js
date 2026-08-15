@@ -2,7 +2,31 @@
 
 const MAX_FILE_SIZE = 50 * 1024 * 1024;
 const RING_CIRCUMFERENCE = 552.92;
-const POLL_INTERVAL_MS = 800;
+const POLL_INTERVAL_MS = 700;
+const MAX_POLL_ERRORS = 4;
+
+const PHASES = [
+  { id: "uploading", label: "Uploading your project" },
+  { id: "preparing", label: "Preparing your project" },
+  { id: "discovering", label: "Discovering files" },
+  { id: "filtering", label: "Filtering files" },
+  { id: "scanning", label: "Checking your code" },
+  { id: "reviewing", label: "Reviewing findings" },
+  { id: "building_report", label: "Preparing report" },
+  { id: "complete", label: "Scan complete" },
+];
+
+const PHASE_TITLES = {
+  uploading: "Uploading your project",
+  preparing: "Preparing your project",
+  discovering: "Discovering files",
+  filtering: "Filtering files",
+  scanning: "Checking your code",
+  reviewing: "Reviewing findings",
+  building_report: "Preparing your report",
+  complete: "Scan complete",
+  error: "Scan could not be completed",
+};
 
 const SEVERITIES = ["critical", "high", "medium", "low", "informational"];
 const SEVERITY_TEXT = {
@@ -27,14 +51,6 @@ const GRADE_COLORS = {
   risk: "#f85149",
 };
 
-const PROGRESS_STAGES = [
-  "Uploading\u2026",
-  "Extracting project\u2026",
-  "Detecting framework\u2026",
-  "Running rules\u2026",
-  "Computing Ship Score\u2026",
-];
-
 const els = {
   ctaScan: document.getElementById("cta-scan"),
   viewLanding: document.getElementById("view-landing"),
@@ -46,7 +62,18 @@ const els = {
   fileInfo: document.getElementById("upload-fileinfo"),
   uploadError: document.getElementById("upload-error"),
   uploadButton: document.getElementById("upload-button"),
-  progressStatus: document.getElementById("progress-status"),
+  progressTitle: document.getElementById("progress-title"),
+  progressMessage: document.getElementById("progress-message"),
+  progressBar: document.getElementById("progress-bar"),
+  progressFraction: document.getElementById("progress-fraction"),
+  progressCurrentLabel: document.getElementById("progress-current-label"),
+  progressCurrentFile: document.getElementById("progress-current-file"),
+  progressFindings: document.getElementById("progress-findings"),
+  progressPhases: document.getElementById("progress-phases"),
+  progressFileStats: document.getElementById("progress-file-stats"),
+  progressError: document.getElementById("progress-error"),
+  progressActions: document.getElementById("progress-actions"),
+  progressRetry: document.getElementById("progress-retry"),
   scoreNumber: document.getElementById("results-score"),
   scoreGrade: document.getElementById("results-grade"),
   scoreRing: document.getElementById("results-score-ring"),
@@ -60,7 +87,7 @@ const els = {
 let selectedFile = null;
 let currentScanId = null;
 let currentResult = null;
-let progressTimer = null;
+let lastAnnouncedPhase = null;
 
 function showView(viewName) {
   [els.viewLanding, els.viewUpload, els.viewProgress, els.viewResults].forEach(function (v) {
@@ -412,44 +439,128 @@ function renderPassed(passed) {
   });
 }
 
-function setProgressStage(index) {
-  els.progressStatus.textContent = PROGRESS_STAGES[index % PROGRESS_STAGES.length];
-}
-
-function startProgress() {
-  let i = 0;
-  setProgressStage(i);
-  progressTimer = setInterval(function () {
-    i += 1;
-    setProgressStage(i);
-  }, 900);
-}
-
-function stopProgress() {
-  if (progressTimer) {
-    clearInterval(progressTimer);
-    progressTimer = null;
+function phaseIndex(phase) {
+  for (let i = 0; i < PHASES.length; i += 1) {
+    if (PHASES[i].id === phase) return i;
   }
+  return PHASES.length - 1;
 }
 
-async function submitFormData(url, formData) {
-  const res = await fetch(url, {
-    method: "POST",
-    body: formData,
-  });
-  let body = null;
-  try {
-    body = await res.json();
-  } catch (err) {
-    if (!res.ok) {
-      throw new Error("Server error " + res.status + ". Response was not JSON.");
+function renderPhaseTracker(phase) {
+  const idx = phaseIndex(phase);
+  els.progressPhases.replaceChildren();
+  PHASES.forEach(function (ph, i) {
+    const li = makeEl("li", null);
+    const icon = makeEl("span", "phase-icon", null);
+    const txt = makeEl("span", "phase-text", ph.label);
+    if (i < idx) {
+      li.className = "completed";
+      icon.textContent = "\u2713";
+    } else if (i === idx) {
+      li.className = "active";
+      icon.textContent = "\u2192";
+      li.setAttribute("aria-current", "step");
+    } else {
+      li.className = "pending";
+      icon.textContent = "\u25CB";
     }
+    li.appendChild(icon);
+    li.appendChild(txt);
+    els.progressPhases.appendChild(li);
+  });
+}
+
+function renderPhaseTrackerError() {
+  const li = makeEl("li", "error");
+  li.appendChild(makeEl("span", "phase-icon", "\u2715"));
+  li.appendChild(makeEl("span", "phase-text", "Scan failed"));
+  els.progressPhases.appendChild(li);
+}
+
+function resetProgressUi() {
+  lastAnnouncedPhase = null;
+  els.progressBar.classList.remove("indeterminate");
+  els.progressBar.removeAttribute("aria-valuenow");
+  els.progressFraction.hidden = true;
+  els.progressCurrentLabel.hidden = true;
+  els.progressCurrentFile.hidden = true;
+  els.progressFindings.hidden = true;
+  els.progressFileStats.hidden = true;
+  els.progressError.hidden = true;
+  els.progressActions.hidden = true;
+  els.progressPhases.replaceChildren();
+}
+
+function progressPercent(p) {
+  if (typeof p.total === "number" && p.total > 0 && typeof p.current === "number" && p.current >= 0) {
+    return Math.min(100, Math.round((p.current / p.total) * 100));
   }
-  if (!res.ok) {
-    const detail = body && body.detail ? (typeof body.detail === "string" ? body.detail : JSON.stringify(body.detail)) : "Request failed with status " + res.status + ".";
-    throw new Error(detail);
+  return null;
+}
+
+function renderProgress(p) {
+  const title = PHASE_TITLES[p.phase] || p.message || "Checking your app";
+  if (title !== lastAnnouncedPhase) {
+    els.progressTitle.textContent = title;
+    lastAnnouncedPhase = title;
   }
-  return body;
+  els.progressMessage.hidden = p.phase === "uploading";
+
+  const pct = progressPercent(p);
+  els.progressBar.classList.remove("indeterminate");
+  let fill = els.progressBar.querySelector(".progress-bar-fill");
+  if (pct === null) {
+    if (!fill) {
+      fill = makeEl("div", "progress-bar-fill");
+      els.progressBar.appendChild(fill);
+    }
+    els.progressBar.classList.add("indeterminate");
+    els.progressBar.removeAttribute("aria-valuenow");
+    els.progressFraction.hidden = true;
+  } else {
+    if (!fill) {
+      fill = makeEl("div", "progress-bar-fill");
+      els.progressBar.appendChild(fill);
+    }
+    fill.style.width = pct + "%";
+    els.progressBar.setAttribute("aria-valuenow", String(pct));
+    els.progressFraction.hidden = false;
+    els.progressFraction.textContent = p.uploaded
+      ? formatBytes(p.current) + " / " + formatBytes(p.total)
+      : p.current + " / " + p.total + " files";
+  }
+
+  const showFile = !p.uploaded && !!p.current_file;
+  els.progressCurrentLabel.hidden = !showFile;
+  els.progressCurrentFile.hidden = !showFile;
+  if (showFile) els.progressCurrentFile.textContent = p.current_file;
+
+  const showFindings = typeof p.findings_found === "number" && !p.uploaded;
+  els.progressFindings.hidden = !showFindings;
+  if (showFindings) {
+    els.progressFindings.textContent = p.findings_found + " finding" + (p.findings_found === 1 ? "" : "s") + " discovered so far";
+  }
+
+  const stats = [];
+  if (p.phase === "discovering" && typeof p.files_discovered === "number") {
+    stats.push(p.files_discovered + " files discovered");
+  }
+  if (typeof p.files_to_scan === "number") stats.push(p.files_to_scan + " application files");
+  if (typeof p.files_skipped === "number") stats.push(p.files_skipped + " files skipped");
+  els.progressFileStats.hidden = !stats.length;
+  if (stats.length) els.progressFileStats.textContent = stats.join(" \u00b7 ");
+
+  renderPhaseTracker(p.phase);
+}
+
+function renderError(message) {
+  els.progressBar.classList.remove("indeterminate");
+  els.progressBar.removeAttribute("aria-valuenow");
+  els.progressFraction.hidden = true;
+  els.progressError.textContent = message || "The scan could not be completed.";
+  els.progressError.hidden = false;
+  els.progressActions.hidden = false;
+  renderPhaseTrackerError();
 }
 
 function delay(ms) {
@@ -474,57 +585,86 @@ async function fetchScanStatus(scanId) {
 }
 
 async function pollScan(scanId) {
-  setProgressStage(1);
+  let transportErrors = 0;
   for (;;) {
     await delay(POLL_INTERVAL_MS);
-    const data = await fetchScanStatus(scanId);
+    let data;
+    try {
+      data = await fetchScanStatus(scanId);
+      transportErrors = 0;
+    } catch (err) {
+      transportErrors += 1;
+      if (transportErrors >= MAX_POLL_ERRORS) {
+        renderError("Lost connection to the scan. Check your network and try again.");
+        return;
+      }
+      continue;
+    }
     const status = data.status ? String(data.status).toLowerCase() : null;
     if (status === "complete" || status === "completed" || status === "done") {
-      stopProgress();
       if (data.result) {
         renderResults(data.result);
       } else if (typeof data.score === "number") {
         renderResults(data);
       } else {
-        throw new Error("Scan finished but no result payload was returned.");
+        renderError("Scan finished but no result payload was returned.");
       }
       return;
     }
     if (status === "error" || status === "failed") {
-      stopProgress();
-      throw new Error(data.error || data.message || "The scan failed.");
+      renderError(data.error || data.message || "The scan failed.");
+      return;
     }
+    if (data.progress) renderProgress(data.progress);
   }
 }
 
-async function runScan(file) {
+function uploadScan(file, onProgress, onDone, onError) {
+  const xhr = new XMLHttpRequest();
+  xhr.open("POST", "/api/scans");
+  xhr.upload.addEventListener("progress", function (e) {
+    if (e.lengthComputable && onProgress) onProgress(e.loaded, e.total);
+  });
+  xhr.addEventListener("load", function () {
+    let body = null;
+    try {
+      body = JSON.parse(xhr.responseText);
+    } catch (err) { /* ignore */ }
+    if (xhr.status >= 200 && xhr.status < 300) {
+      if (onDone) onDone(body);
+      return;
+    }
+    const detail = body && body.detail ? (typeof body.detail === "string" ? body.detail : JSON.stringify(body.detail)) : "Request failed with status " + xhr.status + ".";
+    if (onError) onError(new Error(detail));
+  });
+  xhr.addEventListener("error", function () {
+    if (onError) onError(new Error("Upload failed. Check your connection and try again."));
+  });
+  const formData = new FormData();
+  formData.append("file", file);
+  xhr.send(formData);
+}
+
+function runScan(file) {
   setError(null);
   showView(els.viewProgress);
-  startProgress();
-  try {
-    const formData = new FormData();
-    formData.append("file", file);
-    const body = await submitFormData("/api/scans", formData);
-    stopProgress();
-
+  currentScanId = null;
+  currentResult = null;
+  resetProgressUi();
+  renderProgress({ phase: "uploading", message: "Uploading your project", uploaded: true, total: file.size, current: 0 });
+  uploadScan(file, function (loaded, total) {
+    renderProgress({ phase: "uploading", message: "Uploading your project", uploaded: true, current: loaded, total: total });
+  }, function (body) {
     if (body && body.scan_id) {
       currentScanId = body.scan_id;
-      await pollScan(body.scan_id);
-    } else if (body && typeof body.score === "number") {
-      currentScanId = body.scan_id || null;
-      renderResults(body);
-    } else if (body && body.status === "complete" && body.result) {
-      currentScanId = body.scan_id || null;
-      renderResults(body.result);
+      pollScan(body.scan_id);
     } else {
-      throw new Error("The server returned an unexpected response.");
+      renderError("The server returned an unexpected response.");
     }
-  } catch (err) {
-    stopProgress();
-    console.error("Scan failed:", err);
-    showView(els.viewUpload);
-    setError(err.message || "Something went wrong. Please try again.");
-  }
+  }, function (err) {
+    console.error("Upload failed:", err);
+    renderError(err.message || "Upload failed.");
+  });
 }
 
 function validateFile(file) {
@@ -707,6 +847,11 @@ els.uploadButton.addEventListener("click", function () {
 });
 
 els.scanAgain.addEventListener("click", function () {
+  resetUpload();
+  showView(els.viewUpload);
+});
+
+els.progressRetry.addEventListener("click", function () {
   resetUpload();
   showView(els.viewUpload);
 });

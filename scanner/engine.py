@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import time
+from typing import Any, Callable
 
 from scanner.models import ScanResult, ScanTarget
 from scanner.detection import detect_scan_target
@@ -11,6 +12,8 @@ from scanner.scope import should_analyze, priority_for, is_actionable, severity_
 from scanner import messaging
 
 MAX_FINDINGS_PER_RULE_PER_FILE = 5
+
+ProgressReporter = Callable[[dict[str, Any]], None] | None
 
 
 def group_findings(findings) -> list[dict]:
@@ -52,35 +55,62 @@ def group_findings(findings) -> list[dict]:
     return out
 
 
-def scan_root(root: str, files) -> ScanResult:
+def _report(reporter: ProgressReporter, **kwargs: Any) -> None:
+    if reporter is not None:
+        reporter(kwargs)
+
+
+def scan_root(root: str, files, progress: ProgressReporter = None) -> ScanResult:
     t0 = time.perf_counter()
     app_files = [f for f in files if should_analyze(f.path)]
+    _report(
+        progress,
+        phase="filtering",
+        files_discovered=len(files),
+        files_skipped=len(files) - len(app_files),
+        files_to_scan=len(app_files),
+    )
     target = detect_scan_target(root, app_files)
     rules = [r for r in all_rules() if r.applies_to(target)]
     findings = []
-    passed: set[str] = set()
-    for rule in rules:
-        hit_files = []
-        for f in app_files:
-            if rule.files_include and not any(x in f.path for x in rule.files_include):
-                continue
-            if rule.files_exclude and any(x in f.path for x in rule.files_exclude):
-                continue
-            if f.binary:
+    rule_hits: dict[str, bool] = {}
+    total = len(app_files)
+    for idx, f in enumerate(app_files):
+        _report(
+            progress,
+            phase="scanning",
+            current=idx + 1,
+            total=total,
+            current_file=f.path,
+            files_analyzed=idx + 1,
+            findings_found=len(findings),
+        )
+        if f.binary:
+            continue
+        for rule in rules:
+            if not rule.should_scan_file(f.path):
                 continue
             hits = rule.find_in(f.content)
             if hits:
+                rule_hits[rule.rule_id] = True
                 for line, ev in hits[:MAX_FINDINGS_PER_RULE_PER_FILE]:
                     finding = rule.make_finding(
                         target, f.path, line, redact_evidence(ev)
                     )
                     finding.priority = priority_for(finding.severity, finding.confidence)
                     findings.append(finding)
-                hit_files.append(f.path)
-        if not hit_files:
-            passed.add(rule.rule_id)
+    passed = {r.rule_id for r in rules if r.rule_id not in rule_hits}
+    _report(progress, phase="reviewing")
     score, grade = compute_score(findings)
     grouped = group_findings(findings)
+    _report(
+        progress,
+        phase="building_report",
+        current=total,
+        total=total,
+        files_analyzed=total,
+        findings_found=len(findings),
+    )
     dur = int((time.perf_counter() - t0) * 1000)
     by_sev: dict[str, int] = {}
     for f in findings:
