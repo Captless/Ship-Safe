@@ -63,21 +63,14 @@
 
     <section id="view-progress" class="view" aria-label="Scan in progress" hidden>
       <div class="panel progress-panel">
-        <div class="progress-icon" aria-hidden="true">&#128269;</div>
+        <div class="progress-header" aria-hidden="true">
+          <span class="progress-badge">Ship Safe</span>
+          <span class="progress-mode">Scanning</span>
+        </div>
         <h2 id="progress-title" class="progress-title" aria-live="polite">Checking your app</h2>
         <p id="progress-message" class="progress-message">We're looking for things that could cause problems after launch.</p>
 
-        <div id="progress-bar-wrap" class="progress-bar-wrap">
-          <div id="progress-bar" class="progress-bar" role="progressbar" aria-valuemin="0" aria-valuemax="100"></div>
-        </div>
-        <p id="progress-fraction" class="progress-fraction" hidden></p>
-
-        <p id="progress-current-label" class="progress-current-label" hidden>Currently checking:</p>
-        <p id="progress-current-file" class="progress-current-file" hidden></p>
-
-        <p id="progress-findings" class="progress-findings" hidden></p>
-
-        <ul id="progress-phases" class="progress-phases" aria-label="Scan phases"></ul>
+        <div id="progress-activity" class="progress-activity" aria-live="polite" aria-relevant="additions text" aria-label="Scan progress activity"></div>
 
         <p id="progress-file-stats" class="progress-file-stats" hidden></p>
 
