@@ -5,17 +5,6 @@ const RING_CIRCUMFERENCE = 552.92;
 const POLL_INTERVAL_MS = 700;
 const MAX_POLL_ERRORS = 4;
 
-const PHASES = [
-  { id: "uploading", label: "Uploading your project" },
-  { id: "preparing", label: "Preparing your project" },
-  { id: "discovering", label: "Discovering files" },
-  { id: "filtering", label: "Filtering files" },
-  { id: "scanning", label: "Checking your code" },
-  { id: "reviewing", label: "Reviewing findings" },
-  { id: "building_report", label: "Preparing report" },
-  { id: "complete", label: "Scan complete" },
-];
-
 const PHASE_TITLES = {
   uploading: "Uploading your project",
   preparing: "Preparing your project",
@@ -69,12 +58,7 @@ const els = {
   uploadButton: document.getElementById("upload-button"),
   progressTitle: document.getElementById("progress-title"),
   progressMessage: document.getElementById("progress-message"),
-  progressBar: document.getElementById("progress-bar"),
-  progressFraction: document.getElementById("progress-fraction"),
-  progressCurrentLabel: document.getElementById("progress-current-label"),
-  progressCurrentFile: document.getElementById("progress-current-file"),
-  progressFindings: document.getElementById("progress-findings"),
-  progressPhases: document.getElementById("progress-phases"),
+  progressActivity: document.getElementById("progress-activity"),
   progressFileStats: document.getElementById("progress-file-stats"),
   progressError: document.getElementById("progress-error"),
   progressActions: document.getElementById("progress-actions"),
@@ -105,6 +89,8 @@ let currentScanId = null;
 let currentResult = null;
 let lastAnnouncedPhase = null;
 let lastAnnouncedMessage = null;
+let activityEntries = [];
+let activityCurrent = null;
 
 function showView(viewName) {
   [els.viewLanding, els.viewUpload, els.viewProgress, els.viewScanComplete, els.viewResults].forEach(function (v) {
@@ -499,58 +485,106 @@ function renderPassed(passed) {
   });
 }
 
-function phaseIndex(phase) {
-  for (let i = 0; i < PHASES.length; i += 1) {
-    if (PHASES[i].id === phase) return i;
-  }
-  return PHASES.length - 1;
-}
+function activitySection(entry, isCurrent) {
+  const wrap = makeEl("div", "activity-section");
+  if (isCurrent) wrap.classList.add("current");
+  const p = entry.fields;
+  const phase = entry.phase;
+  const line = makeEl.bind(null, "div", "activity-line");
 
-function renderPhaseTracker(phase) {
-  const idx = phaseIndex(phase);
-  els.progressPhases.replaceChildren();
-  PHASES.forEach(function (ph, i) {
-    const li = makeEl("li", null);
-    const icon = makeEl("span", "phase-icon", null);
-    const txt = makeEl("span", "phase-text", ph.label);
-    if (i < idx) {
-      li.className = "completed";
-      icon.textContent = "\u2713";
-    } else if (i === idx) {
-      li.className = "active";
-      icon.textContent = "\u2192";
-      li.setAttribute("aria-current", "step");
-    } else {
-      li.className = "pending";
-      icon.textContent = "\u25CB";
+  if (phase === "uploading") {
+    wrap.appendChild(line("> Uploading your project"));
+    if (typeof p.current === "number" && typeof p.total === "number") {
+      wrap.appendChild(line("  " + formatBytes(p.current) + " / " + formatBytes(p.total)));
     }
-    li.appendChild(icon);
-    li.appendChild(txt);
-    els.progressPhases.appendChild(li);
-  });
+  } else if (phase === "preparing") {
+    wrap.appendChild(line("> Preparing your project"));
+  } else if (phase === "discovering") {
+    wrap.appendChild(line("> Discovering files"));
+    if (typeof p.files_discovered === "number") {
+      wrap.appendChild(line("  " + p.files_discovered.toLocaleString() + " files found"));
+    }
+  } else if (phase === "filtering") {
+    wrap.appendChild(line("> Filtering files"));
+    if (typeof p.files_to_scan === "number") {
+      wrap.appendChild(line("  " + p.files_to_scan.toLocaleString() + " files selected"));
+    }
+  } else if (phase === "scanning") {
+    wrap.appendChild(line("> Checking your code"));
+    const pct = progressPercent(p);
+    if (pct !== null) {
+      const filled = Math.round(pct / 5);
+      const bar = "\u2588".repeat(filled) + "\u2591".repeat(20 - filled);
+      wrap.appendChild(line("  [" + bar + "] " + pct + "%"));
+      if (typeof p.current === "number" && typeof p.total === "number") {
+        wrap.appendChild(line("  " + p.current.toLocaleString() + " / " + p.total.toLocaleString() + " files"));
+      }
+    }
+    if (p.current_file) {
+      const fileLine = line("  \u2514\u2500 " + p.current_file);
+      fileLine.classList.add("activity-file");
+      wrap.appendChild(fileLine);
+    }
+    if (typeof p.findings_found === "number" && p.findings_found > 0) {
+      const findLine = line("  " + p.findings_found + " finding" + (p.findings_found === 1 ? "" : "s") + " found so far");
+      findLine.classList.add("activity-findings");
+      wrap.appendChild(findLine);
+    }
+  } else if (phase === "reviewing") {
+    wrap.appendChild(line("> Reviewing findings"));
+    if (typeof p.findings_found === "number") {
+      wrap.appendChild(line("  " + p.findings_found + " finding" + (p.findings_found === 1 ? "" : "s")));
+    }
+  } else if (phase === "building_report") {
+    wrap.appendChild(line("> Preparing your report"));
+  } else if (phase === "complete") {
+    const okLine = line("\u2713 Scan complete");
+    okLine.classList.add("activity-ok");
+    wrap.appendChild(okLine);
+    const stats = [];
+    if (typeof p.files_analyzed === "number") stats.push(p.files_analyzed + " files checked");
+    if (typeof p.findings_found === "number") stats.push(p.findings_found + " finding" + (p.findings_found === 1 ? "" : "s"));
+    if (stats.length) wrap.appendChild(line("  " + stats.join(" \u00b7 ")));
+  } else if (phase === "error") {
+    const errLine = line("\u2715 Scan failed");
+    errLine.classList.add("activity-error");
+    wrap.appendChild(errLine);
+    if (p.error) wrap.appendChild(line("  " + p.error));
+  }
+  return wrap;
 }
 
-function renderPhaseTrackerError() {
-  const li = makeEl("li", "error");
-  li.appendChild(makeEl("span", "phase-icon", "\u2715"));
-  li.appendChild(makeEl("span", "phase-text", "Scan failed"));
-  els.progressPhases.appendChild(li);
+function renderActivity() {
+  els.progressActivity.replaceChildren();
+  activityEntries.forEach(function (entry) {
+    els.progressActivity.appendChild(activitySection(entry, false));
+  });
+  if (activityCurrent) {
+    els.progressActivity.appendChild(activitySection(activityCurrent, true));
+  }
+}
+
+function pushActivity(p) {
+  if (!activityCurrent || activityCurrent.phase !== p.phase) {
+    if (activityCurrent) activityEntries.push(activityCurrent);
+    activityCurrent = { phase: p.phase, fields: p };
+  } else {
+    activityCurrent.fields = p;
+  }
+  renderActivity();
 }
 
 function resetProgressUi() {
   lastAnnouncedPhase = null;
   lastAnnouncedMessage = null;
+  activityEntries = [];
+  activityCurrent = null;
   els.progressMessage.textContent = "We're looking for things that could cause problems after launch.";
-  els.progressBar.classList.remove("indeterminate");
-  els.progressBar.removeAttribute("aria-valuenow");
-  els.progressFraction.hidden = true;
-  els.progressCurrentLabel.hidden = true;
-  els.progressCurrentFile.hidden = true;
-  els.progressFindings.hidden = true;
+  els.progressMessage.hidden = false;
   els.progressFileStats.hidden = true;
   els.progressError.hidden = true;
   els.progressActions.hidden = true;
-  els.progressPhases.replaceChildren();
+  els.progressActivity.replaceChildren();
 }
 
 function progressPercent(p) {
@@ -573,61 +607,20 @@ function renderProgress(p) {
   }
   els.progressMessage.hidden = p.phase === "uploading";
 
-  const pct = progressPercent(p);
-  els.progressBar.classList.remove("indeterminate");
-  let fill = els.progressBar.querySelector(".progress-bar-fill");
-  if (pct === null) {
-    if (!fill) {
-      fill = makeEl("div", "progress-bar-fill");
-      els.progressBar.appendChild(fill);
-    }
-    els.progressBar.classList.add("indeterminate");
-    els.progressBar.removeAttribute("aria-valuenow");
-    els.progressFraction.hidden = true;
-  } else {
-    if (!fill) {
-      fill = makeEl("div", "progress-bar-fill");
-      els.progressBar.appendChild(fill);
-    }
-    fill.style.width = pct + "%";
-    els.progressBar.setAttribute("aria-valuenow", String(pct));
-    els.progressFraction.hidden = false;
-    els.progressFraction.textContent = p.uploaded
-      ? formatBytes(p.current) + " / " + formatBytes(p.total)
-      : p.current + " / " + p.total + " files";
-  }
-
-  const showFile = !p.uploaded && !!p.current_file;
-  els.progressCurrentLabel.hidden = !showFile;
-  els.progressCurrentFile.hidden = !showFile;
-  if (showFile) els.progressCurrentFile.textContent = p.current_file;
-
-  const showFindings = typeof p.findings_found === "number" && !p.uploaded;
-  els.progressFindings.hidden = !showFindings;
-  if (showFindings) {
-    els.progressFindings.textContent = p.findings_found + " finding" + (p.findings_found === 1 ? "" : "s") + " discovered so far";
-  }
+  pushActivity(p);
 
   const stats = [];
-  if (p.phase === "discovering" && typeof p.files_discovered === "number") {
-    stats.push(p.files_discovered + " files discovered");
-  }
-  if (typeof p.files_to_scan === "number") stats.push(p.files_to_scan + " application files");
-  if (typeof p.files_skipped === "number") stats.push(p.files_skipped + " files skipped");
+  if (typeof p.files_to_scan === "number") stats.push(p.files_to_scan.toLocaleString() + " application files");
+  if (typeof p.files_skipped === "number") stats.push(p.files_skipped.toLocaleString() + " files skipped");
   els.progressFileStats.hidden = !stats.length;
   if (stats.length) els.progressFileStats.textContent = stats.join(" \u00b7 ");
-
-  renderPhaseTracker(p.phase);
 }
 
 function renderError(message) {
-  els.progressBar.classList.remove("indeterminate");
-  els.progressBar.removeAttribute("aria-valuenow");
-  els.progressFraction.hidden = true;
+  pushActivity({ phase: "error", error: message || "The scan could not be completed." });
   els.progressError.textContent = message || "The scan could not be completed.";
   els.progressError.hidden = false;
   els.progressActions.hidden = false;
-  renderPhaseTrackerError();
 }
 
 function delay(ms) {
