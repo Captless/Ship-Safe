@@ -115,25 +115,57 @@
           <button id="scan-again" class="btn btn-secondary" type="button">Scan another project</button>
         </div>
 
-        <div class="score-wrap">
-          <div class="score-ring" aria-hidden="true">
-            <svg viewBox="0 0 200 200" width="168" height="168">
-              <circle class="ring-bg" cx="100" cy="100" r="88"></circle>
-              <circle id="results-score-ring" class="ring-fg" cx="100" cy="100" r="88"></circle>
-            </svg>
-            <div class="score-center">
-              <span id="results-score" class="score-number">--</span>
-              <span id="results-grade" class="score-grade">Pending</span>
+        <section class="hero-section" aria-label="Ship readiness">
+          <p class="hero-eyebrow">Your project</p>
+          <h3 id="hero-title" class="hero-title">Scan results</h3>
+          <div class="score-wrap">
+            <div class="score-ring" aria-hidden="true">
+              <svg viewBox="0 0 200 200" width="168" height="168">
+                <circle class="ring-bg" cx="100" cy="100" r="88"></circle>
+                <circle id="results-score-ring" class="ring-fg" cx="100" cy="100" r="88"></circle>
+              </svg>
+              <div class="score-center">
+                <span id="results-score" class="score-number">--</span>
+                <span id="results-grade" class="score-grade">Pending</span>
+              </div>
             </div>
+            <p id="results-summary" class="results-summary">Awaiting results.</p>
           </div>
-          <p id="results-summary" class="results-summary">Awaiting results.</p>
-        </div>
+        </section>
+
+        <section id="priority-section" class="priority-section" aria-label="What needs attention" hidden>
+          <h3 class="section-heading">What needs attention</h3>
+          <div id="priority-list" class="priority-list"></div>
+        </section>
+
+        <section id="next-step-section" class="next-step-section" aria-label="Your next step" hidden>
+          <h3 class="section-heading">Your next step</h3>
+          <p id="next-step-text" class="next-step-text"></p>
+          <button id="fix-with-ai" class="btn btn-primary" type="button" hidden>Fix these with AI</button>
+        </section>
+
+        <section id="consolidated-section" class="consolidated-section" aria-label="Fix these issues with AI" hidden>
+          <h3 class="section-heading">Fix these issues with AI</h3>
+          <p id="consolidated-intro" class="consolidated-intro"></p>
+          <div class="fix-prompt">
+            <button id="consolidated-toggle" class="explain-toggle" type="button" aria-expanded="false" aria-controls="consolidated-prompt">Show AI Fix Prompt</button>
+            <button id="consolidated-copy" class="copy-btn" type="button" hidden>Copy AI Fix Prompt</button>
+            <pre id="consolidated-prompt" class="fix-prompt-text" hidden></pre>
+          </div>
+        </section>
 
         <h3 class="section-heading">Findings</h3>
         <div id="findings-list" class="findings-list" aria-label="Findings grouped by severity"></div>
 
-        <h3 class="section-heading">Passed Checks</h3>
-        <div id="passed-section" class="passed-section" aria-label="Passed checks"></div>
+        <section id="whats-good-section" class="whats-good-section" aria-label="What's already good" hidden>
+          <h3 class="section-heading">What's already good</h3>
+          <div id="whats-good-list" class="passed-section" aria-label="Passed checks"></div>
+        </section>
+
+        <section id="scan-info-section" class="scan-info-section" aria-label="Scan information" hidden>
+          <h3 class="section-heading">Scan information</h3>
+          <p id="scan-info-text" class="scan-meta"></p>
+        </section>
 
         <div class="results-actions">
           <button id="download-report" class="btn btn-secondary" type="button">Download Report</button>
