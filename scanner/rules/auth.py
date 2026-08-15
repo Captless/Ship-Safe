@@ -12,7 +12,8 @@ _AUTH_KEYWORDS = ("require_auth", "current_user", "getToken", "auth", "jwt", "se
 
 def _check_route_auth(content: str, extra: str) -> list[tuple[int, str]]:
     has_routes = (
-        "@app.get" in content
+        "@app.route" in content
+        or "@app.get" in content
         or "@app.post" in content
         or "@app.put" in content
         or "@app.delete" in content
@@ -30,6 +31,34 @@ def _check_route_auth(content: str, extra: str) -> list[tuple[int, str]]:
 
 
 RULES: list[Rule] = [
+    Rule(
+        rule_id="AUTH-100",
+        title="Authentication flow detected",
+        category="auth",
+        severity=Severity.INFO,
+        confidence=Confidence.MEDIUM,
+        description="Authentication-related code (login, sign-in, registration, logout) was detected.",
+        why_it_matters="Presence of authentication code makes the authentication security checks relevant to this project.",
+        recommendation="",
+        ai_fix_prompt="",
+        is_presence_signal=True,
+        evidence_signal="Authentication flow code found (login, sign-in, register)",
+        patterns=[r"(?i)\b(login|signin|sign-in|signup|sign-up|register|logout|authenticate|authentication)\b"],
+    ),
+    Rule(
+        rule_id="AUTH-101",
+        title="Session or token handling detected",
+        category="auth",
+        severity=Severity.INFO,
+        confidence=Confidence.MEDIUM,
+        description="Session, token, or authorization handling was detected in the code.",
+        why_it_matters="Presence of session or token handling makes the authorization security checks relevant to this project.",
+        recommendation="",
+        ai_fix_prompt="",
+        is_presence_signal=True,
+        evidence_signal="Session, token, or authorization handling found",
+        patterns=[r"(?i)\b(jwt|bearer|session|cookie|csrf|oauth|oidc|token|isauthenticated|requireauth|authorization|middleware)\b"],
+    ),
     Rule(
         rule_id="AUTH-001",
         title="API route with no obvious auth middleware",
