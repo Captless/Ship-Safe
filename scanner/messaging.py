@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from scanner.models import EvidenceState, CategoryEvidence
+
 SEVERITY_LABELS = {
     "critical": "Fix this first",
     "high": "Important",
@@ -154,4 +156,64 @@ def beginner_for(rule_id: str, category: str, title: str, description: str,
         "technical_description": description or "",
         "technical_why": why_it_matters or "",
         "technical_recommendation": recommendation or "",
+    }
+
+
+EVIDENCE_AREA_LABELS = {
+    "payments": "Payment handling",
+    "auth": "Authentication",
+    "database": "Database",
+    "api": "API & endpoints",
+    "deployment": "Deployment",
+    "secrets": "Secrets",
+    "git": "Git & source control",
+    "configuration": "Configuration",
+    "dangerous-code": "Code safety",
+    "dependencies": "Dependencies",
+}
+
+
+EVIDENCE_MESSAGES = {
+    EvidenceState.NOT_OBSERVED: {
+        "summary": "No evidence found for {area}.",
+        "why_it_matters": "Ship Safe did not find sufficient evidence that this area exists in your project. This does not mean it is absent — just that it could not be assessed.",
+        "recommended_action": "No action needed.",
+    },
+    EvidenceState.OBSERVED: {
+        "summary": "{area} was detected, but specific security checks for it were not performed.",
+        "why_it_matters": "Code related to {area} was found, but Ship Safe did not run targeted security checks for this area.",
+        "recommended_action": "Consider adding security controls for {area}.",
+    },
+    EvidenceState.CHECKED_CLEAN: {
+        "summary": "No issues found in the checks performed for {area}.",
+        "why_it_matters": "The checks that ran found no issues. This does not guarantee that {area} is secure — only that the checks performed passed.",
+        "recommended_action": "No action needed.",
+    },
+    EvidenceState.LIMITED: {
+        "summary": "Partial assessment of {area}.",
+        "why_it_matters": "Ship Safe attempted to assess {area} but could not establish complete coverage. Some checks ran, others did not apply or could not run.",
+        "recommended_action": "Review {area} manually for additional security controls.",
+    },
+    EvidenceState.NEEDS_REVIEW: {
+        "summary": "Issues found in {area} that need review.",
+        "why_it_matters": "Security findings were detected in {area} that require your attention before shipping.",
+        "recommended_action": "Review the findings above and fix the issues before launching.",
+    },
+}
+
+
+def evidence_for(category: str, ev: CategoryEvidence) -> dict[str, str]:
+    area = EVIDENCE_AREA_LABELS.get(category, category)
+    messages = EVIDENCE_MESSAGES.get(ev.state, EVIDENCE_MESSAGES[EvidenceState.NOT_OBSERVED])
+    return {
+        "state": ev.state.value,
+        "area": area,
+        "summary": messages["summary"].format(area=area),
+        "why_it_matters": messages["why_it_matters"].format(area=area),
+        "recommended_action": messages["recommended_action"].format(area=area),
+        "signals": ev.signals,
+        "checks_run": ev.checks_run,
+        "checks_passed": ev.checks_passed,
+        "findings": ev.findings,
+        "confidence": ev.confidence,
     }

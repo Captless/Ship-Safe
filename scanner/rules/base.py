@@ -25,6 +25,8 @@ class Rule:
     files_exclude: list[str] = field(default_factory=list)
     frameworks: set[str] = field(default_factory=set)
     match: Callable[[str, str], list[tuple[int, str]]] | None = None
+    is_presence_signal: bool = False
+    evidence_signal: str = ""
 
     def __post_init__(self) -> None:
         self._compiled = [re.compile(p) for p in self.patterns]

@@ -405,11 +405,19 @@ function renderResults(result) {
     els.summary.textContent = "No critical or high-priority issues were detected. Before launching, perform your normal manual testing and review.";
   }
 
+  if (result.readiness) {
+    const readinessEl = document.getElementById("results-readiness");
+    if (readinessEl) {
+      readinessEl.textContent = result.readiness;
+      readinessEl.hidden = false;
+    }
+  }
+
   renderPrioritySummary(groups);
   renderNextStep(groups);
   renderConsolidatedPrompt(groups);
   renderFindings(groups, result);
-  renderWhatsAlreadyGood(result, groups);
+  renderEvidence(result);
   renderScanInfo(result);
 
   els.downloadReport.disabled = !currentScanId && !result.scan_id;
@@ -439,6 +447,13 @@ function renderScanComplete(result) {
   } else {
     els.completeMessage.textContent = "Your project looks good.";
     els.completeSummary.textContent = "No critical or high-priority issues were detected.";
+  }
+
+  if (result.readiness) {
+    els.completeMessage.textContent = result.readiness;
+    if (result.readiness_details && result.readiness_details.reason) {
+      els.completeSummary.textContent = result.readiness_details.reason;
+    }
   }
 
   const parts = [];
@@ -627,19 +642,89 @@ function renderConsolidatedPrompt(groups) {
   };
 }
 
-function renderWhatsAlreadyGood(result, groups) {
-  const groupCats = new Set(groups.map(function (g) { return g.category; }));
+function renderEvidence(result) {
+  const evidence = result.evidence || {};
   const passed = result.passed || [];
-  const rows = [];
-  PASSED_LABELS.forEach(function (item) {
-    const ran = passed.some(function (rid) { return typeof rid === "string" && rid.indexOf(item.prefix) === 0; });
-    if (ran && !groupCats.has(item.category)) rows.push(item.label);
-  });
+  const groupCats = new Set((result.groups || []).map(function (g) { return g.category; }));
+
   els.whatsGoodList.replaceChildren();
-  els.whatsGoodSection.hidden = !rows.length;
-  rows.forEach(function (label) {
-    els.whatsGoodList.appendChild(makeEl("span", "passed-chip", label));
+  const rows = [];
+
+  Object.entries(evidence).forEach(function (entry) {
+    const cat = entry[0];
+    const ev = entry[1];
+    const state = ev.state;
+    if (state === "not_observed") return;
+
+    const areaLabels = {
+      "payments": "Payment handling",
+      "auth": "Authentication",
+      "database": "Database",
+      "api": "API & endpoints",
+      "deployment": "Deployment",
+    };
+    const area = areaLabels[cat] || cat;
+
+    const stateLabels = {
+      "observed": "Detected \u2014 not fully assessed",
+      "checked_clean": "Checks passed",
+      "limited": "Limited coverage",
+      "needs_review": "Needs review",
+    };
+    const label = stateLabels[state] || state;
+
+    let detail = "";
+    if (ev.signals && ev.signals.length) {
+      detail = " \u2014 " + ev.signals.join(", ");
+    }
+    const chip = makeEl("span", "evidence-chip", area + ": " + label + detail);
+    chip.dataset.state = state;
+    chip.dataset.category = cat;
+    chip.dataset.evidence = JSON.stringify(ev);
+    chip.addEventListener("click", function () {
+      showEvidenceDetail(cat, ev);
+    });
+    rows.push(chip);
   });
+
+  if (!rows.length) {
+    const groupCats = new Set((result.groups || []).map(function (g) { return g.category; }));
+    PASSED_LABELS.forEach(function (item) {
+      const ran = passed.some(function (rid) { return typeof rid === "string" && rid.indexOf(item.prefix) === 0; });
+      if (ran && !groupCats.has(item.category)) rows.push(makeEl("span", "passed-chip", item.label));
+    });
+  }
+
+  els.whatsGoodSection.hidden = !rows.length;
+  rows.forEach(function (el) { els.whatsGoodList.appendChild(el); });
+}
+
+function showEvidenceDetail(category, ev) {
+  const areaLabels = {
+    "payments": "Payment handling",
+    "auth": "Authentication",
+    "database": "Database",
+    "api": "API & endpoints",
+    "deployment": "Deployment",
+  };
+  const area = areaLabels[category] || category;
+  const lines = [];
+  lines.push("Area: " + area);
+  lines.push("State: " + ev.state);
+  if (ev.signals && ev.signals.length) {
+    lines.push("Why this applies: " + ev.signals.join("; "));
+  }
+  if (ev.checks_run && ev.checks_run.length) {
+    lines.push("Checks run: " + ev.checks_run.join(", "));
+  }
+  if (ev.checks_passed && ev.checks_passed.length) {
+    lines.push("Checks passed: " + ev.checks_passed.join(", "));
+  }
+  if (ev.findings && ev.findings.length) {
+    lines.push("Findings: " + ev.findings.join(", "));
+  }
+  lines.push("Evidence confidence: " + ev.confidence);
+  alert(lines.join("\n\n"));
 }
 
 function renderScanInfo(result) {

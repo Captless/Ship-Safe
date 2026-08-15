@@ -325,39 +325,48 @@ def _render_report(scan_id: str, result: dict) -> str:
             f"<details><summary>Show details</summary>{obs_cards}</details>"
         )
 
-    passed = result.get("passed", [])
-    label_map = [
-        ("SECRET-", "secrets", "No obvious exposed secrets"),
-        ("GIT-", "git", "No risky version-control files"),
-        ("CONF-", "config", "No unsafe configuration defaults"),
-        ("DB-", "database", "No database credential exposure"),
-        ("AUTH-", "auth", "Authentication checks look present"),
-        ("API-", "api", "API input validation looks present"),
-        ("PAY-", "payments", "Payment handling looks reasonable"),
-        ("CODE-", "code", "No dangerous code patterns detected"),
-        ("DEPLOY-", "deploy", "No insecure deployment settings"),
-        ("DEP-", "dependencies", "Dependencies look reasonable"),
-    ]
-    cats_with_findings = {g.get("category") for g in groups}
-    good_rows = []
-    for prefix, cat, label in label_map:
-        ran = any(isinstance(r, str) and r.startswith(prefix) for r in passed)
-        if ran and cat not in cats_with_findings:
-            good_rows.append(label)
-    good_html = "".join(f"<span class='ok'>&#10003; {esc(label)}</span> " for label in good_rows)
-    good_html = good_html or "<p class='meta'>No passed checks recorded for this scan.</p>"
+    evidence = result.get("evidence", {})
+    readiness = result.get("readiness", "")
+    readiness_details = result.get("readiness_details", {})
+    evidence_rows = []
+    for cat, ev in sorted(evidence.items()):
+        state = ev.get("state", "")
+        if state == "not_observed":
+            continue
+        area_labels = {
+            "payments": "Payment handling",
+            "auth": "Authentication",
+            "database": "Database",
+            "api": "API & endpoints",
+            "deployment": "Deployment",
+        }
+        area = area_labels.get(cat, cat)
+        state_labels = {
+            "observed": "Detected \u2014 not fully assessed",
+            "checked_clean": "Checks passed",
+            "limited": "Limited coverage",
+            "needs_review": "Needs review",
+        }
+        label = state_labels.get(state, state) or ""
+        if ev.get("signals"):
+            signals = ", ".join(ev["signals"])
+            label += f" \u2014 {signals}"
+        evidence_rows.append(f"<span class='evidence-row' data-state='{esc(state)}'><span class='evidence-label'>{esc(area)}</span> <span class='evidence-state'>{esc(label)}</span></span>")
+    evidence_html = "".join(f"<div class='evidence-item'>{row}</div>" for row in evidence_rows) if evidence_rows else "<p class='meta'>No assessed areas with findings or coverage.</p>"
 
     scan_info = (
-        f"{esc(result.get('files_scanned', 0))} files scanned · "
-        f"{esc(result.get('application_files', 0))} application files · "
-        f"{esc(result.get('ignored_files', 0))} ignored/generated/vendor files · "
+        f"{esc(result.get('files_scanned', 0))} files scanned \u00b7 "
+        f"{esc(result.get('application_files', 0))} application files \u00b7 "
+        f"{esc(result.get('ignored_files', 0))} ignored/generated/vendor files \u00b7 "
         f"{esc(result.get('duration_ms', 0))} ms"
     )
 
+    readiness_display = f"<div class='readiness'>{esc(readiness)}</div>" if readiness else ""
+
     summary_line = (
-        f"{esc(result.get('files_scanned', 0))} files analyzed · "
-        f"{esc(result.get('application_files', 0))} application files · "
-        f"{esc(result.get('ignored_files', 0))} ignored/generated/vendor files · "
+        f"{esc(result.get('files_scanned', 0))} files analyzed \u00b7 "
+        f"{esc(result.get('application_files', 0))} application files \u00b7 "
+        f"{esc(result.get('ignored_files', 0))} ignored/generated/vendor files \u00b7 "
         f"{esc(summary.get('actionable_findings', 0))} actionable findings"
     )
     return f"""<!doctype html><html><head><meta charset="utf-8">
@@ -383,6 +392,15 @@ body{{font-family:system-ui,sans-serif;background:#0d1117;color:#e6edf3;max-widt
 .ok{{color:#3fb950;font-family:monospace;margin-right:14px}}
 pre{{background:#0d1117;border:1px solid #30363d;padding:12px;border-radius:6px;white-space:pre-wrap}}
 .why{{color:#c9d1d9}} .rec{{color:#c9d1d9}}
+.readiness{{font-family:monospace;text-transform:uppercase;color:#2dd4bf;font-weight:700;margin:8px 0 16px;padding:8px 12px;border:1px solid #30363d;border-radius:6px;background:#161b22;text-align:center}}
+.evidence-item{{margin:6px 0}}
+.evidence-row{{display:flex;gap:12px;align-items:center;padding:6px 10px;border:1px solid #30363d;border-radius:6px;background:#161b22}}
+.evidence-label{{font-family:monospace;color:#8b949e}}
+.evidence-state{{color:#2dd4bf}}
+.evidence-row[data-state='observed'] .evidence-state{{color:#fbbf24}}
+.evidence-row[data-state='limited'] .evidence-state{{color:#f0883e}}
+.evidence-row[data-state='needs_review'] .evidence-state{{color:#f85149}}
+.evidence-row[data-state='checked_clean'] .evidence-state{{color:#3fb950}}
 </style></head><body>
 <p class="banner">Build check complete</p>
 <p class="meta">{summary_line}</p>
@@ -393,14 +411,15 @@ pre{{background:#0d1117;border:1px solid #30363d;padding:12px;border-radius:6px;
 <p class="meta">{'Your AI-built project was analyzed.'}</p>
 <p class="priority">{count_line}</p>
 </div>
+{readiness_display}
+<h2>What we assessed</h2>
+{evidence_html}
 <h2>Your next step</h2>
 <p>{next_step}</p>
 {f"<h2>Fix these issues with AI</h2><pre>{esc(consolidated)}</pre>" if consolidated else ""}
 <h2>Findings</h2>
 {cards}
 {obs_html}
-<h2>What's already good</h2>
-<p>{good_html}</p>
 <h2>Scan information</h2>
 <p class="meta">{scan_info}</p>
 </body></html>"""

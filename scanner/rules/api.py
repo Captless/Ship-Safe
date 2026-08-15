@@ -19,6 +19,25 @@ def _api_007_match(content: str, extra: str) -> list[tuple[int, str]]:
 
 RULES: list[Rule] = [
     Rule(
+        rule_id="API-100",
+        title="HTTP routes or API endpoints detected",
+        category="api",
+        severity=Severity.INFO,
+        confidence=Confidence.MEDIUM,
+        description="HTTP route or API endpoint definitions were detected in the code.",
+        why_it_matters="Presence of HTTP endpoints makes the API security checks relevant to this project.",
+        recommendation="",
+        ai_fix_prompt="",
+        is_presence_signal=True,
+        evidence_signal="HTTP route or API endpoint definitions found",
+        patterns=[
+            r"(?i)@app\.(route|get|post|put|delete|patch)",
+            r"(?i)@router\.(get|post|put|delete|patch)",
+            r"(?i)@(bp|blueprint)\.(route|get|post|put|delete|patch)",
+            r"(?i)\b(app|router|express)\.(get|post|put|delete|patch)\s*\(",
+        ],
+    ),
+    Rule(
         rule_id="API-001",
         title="Wildcard CORS on API server",
         category="api",

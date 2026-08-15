@@ -19,6 +19,34 @@ class Confidence(str, Enum):
     LOW = "low"
 
 
+class EvidenceState(str, Enum):
+    NOT_OBSERVED = "not_observed"
+    OBSERVED = "observed"
+    CHECKED_CLEAN = "checked_clean"
+    LIMITED = "limited"
+    NEEDS_REVIEW = "needs_review"
+
+
+@dataclass
+class CategoryEvidence:
+    state: EvidenceState
+    signals: list[str] = field(default_factory=list)
+    checks_run: list[str] = field(default_factory=list)
+    checks_passed: list[str] = field(default_factory=list)
+    findings: list[str] = field(default_factory=list)
+    confidence: str = "low"
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "state": self.state.value,
+            "signals": self.signals,
+            "checks_run": self.checks_run,
+            "checks_passed": self.checks_passed,
+            "findings": self.findings,
+            "confidence": self.confidence,
+        }
+
+
 @dataclass
 class Finding:
     rule_id: str
@@ -86,6 +114,9 @@ class ScanResult:
     grade: str = "Good"
     summary: dict[str, Any] = field(default_factory=dict)
     passed: list[str] = field(default_factory=list)
+    evidence: dict[str, CategoryEvidence] = field(default_factory=dict)
+    readiness: str = ""
+    readiness_details: dict[str, Any] = field(default_factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -101,4 +132,7 @@ class ScanResult:
             "groups": self.groups,
             "summary": self.summary,
             "passed": self.passed,
+            "evidence": {cat: ev.to_dict() for cat, ev in sorted(self.evidence.items())},
+            "readiness": self.readiness,
+            "readiness_details": self.readiness_details,
         }
